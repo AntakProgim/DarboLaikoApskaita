@@ -1,0 +1,5 @@
+{
+  "name": "Darbo laiko apskaita",
+  "description": "Išmani darbo laiko planavimo sistema su automatiniu grafiko generavimu, nuotolinio darbo žymėjimu ir .txt eksportu.",
+  "requestFramePermissions": []
+}
