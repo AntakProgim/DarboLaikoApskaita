@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { DaySchedule, DaySlot, JobRole } from '../types';
-import { calculateDayNetMinutes, formatDuration, timeToMinutes, minutesToTime, sortSlots, getRoleBreakdown, roundToNearest5 } from '../utils/timeHelper';
+import { calculateDayNetMinutes, formatDuration, timeToMinutes, minutesToTime, sortSlots, getRoleBreakdown } from '../utils/timeHelper';
 import { Briefcase, Coffee, Trash2, Plus, MonitorSmartphone, Building2, GripVertical, History } from 'lucide-react';
 import { TimeSelect } from './TimeSelect';
 
@@ -16,6 +16,7 @@ const MAX_DAILY_MINUTES = 12 * 60;
 
 export const DayCard: React.FC<DayCardProps> = ({ day, roles, roleUsage, onChange }) => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [draggedSlotIndex, setDraggedSlotIndex] = useState<number | null>(null);
   const netMinutes = useMemo(() => calculateDayNetMinutes(day.slots), [day.slots]);
   const remainingMinutes = Math.max(0, MAX_DAILY_MINUTES - netMinutes);
   
@@ -27,14 +28,14 @@ export const DayCard: React.FC<DayCardProps> = ({ day, roles, roleUsage, onChang
     let newStart = "08:00";
     
     if (lastSlot) {
-      // We normalize the start time to prevent irregular minutes propagating
-      newStart = roundToNearest5(lastSlot.endTime);
+      // Use exact end time of last slot, do not round
+      newStart = lastSlot.endTime;
     }
 
     const newSlot: DaySlot = {
       id: Date.now().toString(),
       startTime: newStart,
-      endTime: minutesToTime(timeToMinutes(newStart) + 60),
+      endTime: minutesToTime(timeToMinutes(newStart) + 60), // Default +60min
       type: 'work',
       roleId: roles[0]?.id || '',
       isRemote: false
@@ -73,23 +74,26 @@ export const DayCard: React.FC<DayCardProps> = ({ day, roles, roleUsage, onChang
   const onDragStart = (e: React.DragEvent, index: number) => {
     e.dataTransfer.setData('slot-index', index.toString());
     e.dataTransfer.effectAllowed = 'move';
-    // Optional: make the drag image cleaner if needed
+    setDraggedSlotIndex(index);
   };
 
   const onDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault(); // Necessary to allow dropping
     if (dragOverIndex !== index) {
+        if (draggedSlotIndex === index) return; // Don't highlight self
         setDragOverIndex(index);
     }
   };
 
   const onDragEnd = () => {
     setDragOverIndex(null);
+    setDraggedSlotIndex(null);
   };
 
   const onDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
     setDragOverIndex(null);
+    setDraggedSlotIndex(null);
     
     const dragIndexStr = e.dataTransfer.getData('slot-index');
     const dragIndex = parseInt(dragIndexStr, 10);
@@ -160,120 +164,145 @@ export const DayCard: React.FC<DayCardProps> = ({ day, roles, roleUsage, onChang
                 }
             }
 
+            const isDragged = draggedSlotIndex === index;
+            const isDropTarget = dragOverIndex === index && !isDragged;
+            
+            // Determine where to show visual indicator
+            // If dragging downwards (dragIndex < dropIndex), insertion visually happens 'after' (bottom)
+            // If dragging upwards (dragIndex > dropIndex), insertion visually happens 'before' (top)
+            const showTopIndicator = isDropTarget && draggedSlotIndex !== null && draggedSlotIndex > index;
+            const showBottomIndicator = isDropTarget && draggedSlotIndex !== null && draggedSlotIndex < index;
+
             return (
             <div 
-                key={slot.id} 
-                draggable
-                onDragStart={(e) => onDragStart(e, index)}
+                key={slot.id}
                 onDragOver={(e) => onDragOver(e, index)}
-                onDragLeave={onDragEnd}
-                onDragEnd={onDragEnd}
                 onDrop={(e) => onDrop(e, index)}
-                className={`relative group flex flex-col items-start gap-2 p-2 rounded-lg border transition-all ${
-                slot.type === 'break' 
-                  ? 'bg-orange-50 border-orange-100' 
-                  : isOverBudget
-                    ? 'bg-red-50 border-red-200'
-                    : slot.isRemote 
-                        ? 'bg-indigo-50 border-indigo-100' 
-                        : 'bg-white border-gray-200'
-                } ${dragOverIndex === index ? 'border-t-4 border-t-blue-400' : ''}`}
+                className="transition-all duration-200 ease-in-out"
             >
-                
-                <div className="flex items-center justify-between w-full gap-2">
-                    {/* Drag Handle */}
-                    <div 
-                        className="text-gray-300 cursor-grab hover:text-gray-500 flex-shrink-0 active:cursor-grabbing"
-                        title="Perkelti"
-                    >
-                        <GripVertical size={14} />
-                    </div>
+                {/* Visual Top Indicator */}
+                {showTopIndicator && (
+                    <div className="w-full h-1 bg-blue-500 rounded-full mx-auto mb-2 animate-pulse shadow-sm" />
+                )}
 
-                    {/* Time Range */}
-                    <div className="flex items-center gap-1">
-                        <TimeSelect 
-                            value={slot.startTime} 
-                            onChange={(v) => handleUpdateSlot(slot.id, { startTime: v })} 
-                            selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
-                        />
-                        <span className="text-gray-300 text-xs">-</span>
-                        <TimeSelect 
-                            value={slot.endTime} 
-                            onChange={(v) => handleUpdateSlot(slot.id, { endTime: v })} 
-                            selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
-                        />
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-1">
-                        {/* Toggle Type (Work/Break) */}
-                        <button 
-                            onClick={() => handleUpdateSlot(slot.id, { type: slot.type === 'work' ? 'break' : 'work' })}
-                            className={`p-1.5 rounded hover:bg-black/5 transition-colors ${slot.type === 'break' ? 'text-orange-500' : 'text-gray-400'}`}
-                            title="Keisti tipą"
+                <div 
+                    draggable
+                    onDragStart={(e) => onDragStart(e, index)}
+                    onDragEnd={onDragEnd}
+                    className={`relative group flex flex-col items-start gap-2 p-2 rounded-lg border transition-all ${
+                    slot.type === 'break' 
+                      ? 'bg-orange-50 border-orange-100' 
+                      : isOverBudget
+                        ? 'bg-red-50 border-red-200'
+                        : slot.isRemote 
+                            ? 'bg-indigo-50 border-indigo-100' 
+                            : 'bg-white border-gray-200'
+                    } 
+                    ${isDragged ? 'opacity-50 border-dashed border-blue-400 bg-blue-50 scale-[0.99]' : ''}
+                    ${isDropTarget && !showTopIndicator && !showBottomIndicator ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
+                    `}
+                >
+                    
+                    <div className="flex items-center justify-between w-full gap-2">
+                        {/* Drag Handle */}
+                        <div 
+                            className="text-gray-300 cursor-grab hover:text-gray-500 flex-shrink-0 active:cursor-grabbing"
+                            title="Perkelti"
                         >
-                            {slot.type === 'break' ? <Coffee size={14}/> : <Briefcase size={14}/>}
-                        </button>
+                            <GripVertical size={14} />
+                        </div>
 
-                        {/* Toggle Remote (Only for work) */}
-                        {slot.type === 'work' && (
+                        {/* Time Range */}
+                        <div className="flex items-center gap-1">
+                            <TimeSelect 
+                                value={slot.startTime} 
+                                onChange={(v) => handleUpdateSlot(slot.id, { startTime: v })} 
+                                selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
+                            />
+                            <span className="text-gray-300 text-xs">-</span>
+                            <TimeSelect 
+                                value={slot.endTime} 
+                                onChange={(v) => handleUpdateSlot(slot.id, { endTime: v })} 
+                                selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
+                            />
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1">
+                            {/* Toggle Type (Work/Break) */}
                             <button 
-                                onClick={() => handleUpdateSlot(slot.id, { isRemote: !slot.isRemote })}
-                                className={`p-1.5 rounded transition-colors flex items-center justify-center ${
-                                    slot.isRemote 
-                                        ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
-                                        : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                                }`}
-                                title={slot.isRemote ? "Nuotolinis darbas (įjungta)" : "Nuotolinis darbas (išjungta)"}
+                                onClick={() => handleUpdateSlot(slot.id, { type: slot.type === 'work' ? 'break' : 'work' })}
+                                className={`p-1.5 rounded hover:bg-black/5 transition-colors ${slot.type === 'break' ? 'text-orange-500' : 'text-gray-400'}`}
+                                title="Keisti tipą"
                             >
-                                {slot.isRemote ? <MonitorSmartphone size={14} /> : <Building2 size={14} />}
+                                {slot.type === 'break' ? <Coffee size={14}/> : <Briefcase size={14}/>}
                             </button>
-                        )}
 
-                        {/* Delete */}
-                        <button 
-                            onClick={() => handleRemoveSlot(slot.id)}
-                            className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                        >
-                            <Trash2 size={14} />
-                        </button>
+                            {/* Toggle Remote (Only for work) */}
+                            {slot.type === 'work' && (
+                                <button 
+                                    onClick={() => handleUpdateSlot(slot.id, { isRemote: !slot.isRemote })}
+                                    className={`p-1.5 rounded transition-colors flex items-center justify-center ${
+                                        slot.isRemote 
+                                            ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
+                                            : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                                    }`}
+                                    title={slot.isRemote ? "Nuotolinis darbas (įjungta)" : "Nuotolinis darbas (išjungta)"}
+                                >
+                                    {slot.isRemote ? <MonitorSmartphone size={14} /> : <Building2 size={14} />}
+                                </button>
+                            )}
+
+                            {/* Delete */}
+                            <button 
+                                onClick={() => handleRemoveSlot(slot.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Role Selector - Full Width */}
+                    <div className="w-full pl-5">
+                        {slot.type === 'work' ? (
+                            <div className="flex flex-col gap-1">
+                                <div className="relative w-full flex items-center gap-1">
+                                    <select 
+                                        value={slot.roleId} 
+                                        onChange={(e) => handleUpdateSlot(slot.id, { roleId: e.target.value })}
+                                        className={`w-full text-xs p-1.5 pr-6 bg-transparent border rounded focus:outline-none font-medium appearance-none cursor-pointer ${isOverBudget ? 'text-red-700 border-red-300 bg-red-100/50' : 'text-gray-700 border-gray-200 bg-white focus:border-blue-500'}`}
+                                    >
+                                        {roles.map(r => (
+                                            <option key={r.id} value={r.id}>{r.title}</option>
+                                        ))}
+                                    </select>
+                                    <Briefcase size={12} className={`absolute right-2 top-2 pointer-events-none ${isOverBudget ? 'text-red-400' : 'text-gray-400'}`}/>
+                                </div>
+                                
+                                {/* Remote Badge */}
+                                {slot.isRemote && (
+                                    <div className="flex items-center gap-1.5 text-[10px] text-indigo-600 font-bold px-0.5 animate-fade-in">
+                                        <MonitorSmartphone size={10} />
+                                        <span>Nuotolinis</span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="w-full text-center py-1.5 rounded bg-orange-100/50 border border-orange-100">
+                                <div className="flex items-center justify-center gap-1 text-xs text-orange-600 font-medium">
+                                    <Coffee size={12} />
+                                    <span>Pertrauka</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Role Selector - Full Width */}
-                <div className="w-full pl-5">
-                    {slot.type === 'work' ? (
-                        <div className="flex flex-col gap-1">
-                            <div className="relative w-full flex items-center gap-1">
-                                <select 
-                                    value={slot.roleId} 
-                                    onChange={(e) => handleUpdateSlot(slot.id, { roleId: e.target.value })}
-                                    className={`w-full text-xs p-1.5 pr-6 bg-transparent border rounded focus:outline-none font-medium appearance-none cursor-pointer ${isOverBudget ? 'text-red-700 border-red-300 bg-red-100/50' : 'text-gray-700 border-gray-200 bg-white focus:border-blue-500'}`}
-                                >
-                                    {roles.map(r => (
-                                        <option key={r.id} value={r.id}>{r.title}</option>
-                                    ))}
-                                </select>
-                                <Briefcase size={12} className={`absolute right-2 top-2 pointer-events-none ${isOverBudget ? 'text-red-400' : 'text-gray-400'}`}/>
-                            </div>
-                            
-                            {/* Remote Badge */}
-                            {slot.isRemote && (
-                                <div className="flex items-center gap-1.5 text-[10px] text-indigo-600 font-bold px-0.5 animate-fade-in">
-                                    <MonitorSmartphone size={10} />
-                                    <span>Nuotolinis</span>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="w-full text-center py-1.5 rounded bg-orange-100/50 border border-orange-100">
-                            <div className="flex items-center justify-center gap-1 text-xs text-orange-600 font-medium">
-                                <Coffee size={12} />
-                                <span>Pertrauka</span>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                {/* Visual Bottom Indicator */}
+                {showBottomIndicator && (
+                    <div className="w-full h-1 bg-blue-500 rounded-full mx-auto mt-2 animate-pulse shadow-sm" />
+                )}
             </div>
         )})}
         

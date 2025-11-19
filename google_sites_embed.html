@@ -1,31 +1,26 @@
+
 <!DOCTYPE html>
 <html lang="lt">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darbo Laiko Planuoklis</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Babel for JSX support -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Import Map for Modules -->
-    <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@18.2.0",
-        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "@google/genai": "https://esm.sh/@google/genai@0.1.1",
-        "lucide-react": "https://esm.sh/lucide-react@0.300.0"
-      }
-    }
-    </script>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Load React & ReactDOM (UMD - Universal Module Definition) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- 3. Load Babel for JSX processing -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- 4. Styles -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body { font-family: 'Inter', sans-serif; background-color: transparent; }
-      /* Custom scrollbar for iframe */
+      /* Custom scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -33,48 +28,74 @@
       
       .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
       @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+      /* Error box style */
+      #error-display { display: none; padding: 20px; background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 8px; margin: 20px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
+    <!-- App Root -->
     <div id="root"></div>
+    <!-- Error Log Container -->
+    <div id="error-display"></div>
 
-    <script type="text/babel" data-type="module">
-        import React, { useState, useMemo, useEffect } from 'react';
-        import { createRoot } from 'react-dom/client';
-        import { GoogleGenAI, Type } from '@google/genai';
-        import { 
-            Sparkles, Loader2, Plus, Trash2, Briefcase, Building2, 
-            AlertCircle, Info, Clock, Coffee, RotateCcw, Download, 
-            User, CheckCircle, Table, FileText, GripVertical, History, 
-            MonitorSmartphone, Pencil 
-        } from 'lucide-react';
+    <!-- 5. Load Gemini SDK safely as a Module and expose to Window -->
+    <script type="module">
+        import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@0.1.1";
+        window.GoogleGenAI = GoogleGenAI;
+        window.GenAIType = Type;
+    </script>
 
-        // --- KONFIGŪRACIJA ---
-        // ĮRAŠYKITE SAVO GEMINI API RAKTĄ ČIA:
+    <!-- 6. Main Application Code -->
+    <script type="text/babel">
+        // --- ERROR HANDLING ---
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errorBox = document.getElementById('error-display');
+            errorBox.style.display = 'block';
+            errorBox.innerText = `Klaida: ${message}\nEilutė: ${lineno}`;
+            console.error(error);
+        };
+
+        // --- CONFIGURATION ---
+        // SVARBU: Įrašykite savo raktą čia
         const API_KEY = "JUSU_GOOGLE_GEMINI_API_RAKTAS"; 
-        // ---------------------
 
-        // --- UTILS: Time Helper ---
+        // --- ICONS (Inlined to prevent import errors in Google Sites) ---
+        const Icon = ({ children, size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const Briefcase = (p) => <Icon {...p}><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></Icon>;
+        const Coffee = (p) => <Icon {...p}><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="4"/><line x1="10" x2="10" y1="2" y2="4"/><line x1="14" x2="14" y1="2" y2="4"/></Icon>;
+        const Trash2 = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
+        const Plus = (p) => <Icon {...p}><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
+        const MonitorSmartphone = (p) => <Icon {...p}><path d="M18 8v6a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2Z"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M2 14a2 2 0 0 0-2-2V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2Z"/></Icon>;
+        const Building2 = (p) => <Icon {...p}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></Icon>;
+        const GripVertical = (p) => <Icon {...p}><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></Icon>;
+        const History = (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></Icon>;
+        const User = (p) => <Icon {...p}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></Icon>;
+        const FileText = (p) => <Icon {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></Icon>;
+        const TableIcon = (p) => <Icon {...p}><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></Icon>;
+        const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></Icon>;
+        const Clock = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Icon>;
+        const CheckCircle = (p) => <Icon {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></Icon>;
+        const AlertCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></Icon>;
+        const Pencil = (p) => <Icon {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></Icon>;
+        const Sparkles = (p) => <Icon {...p}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1-1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></Icon>;
+        const Loader2 = (p) => <Icon {...p} className={`animate-spin ${p.className || ''}`}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></Icon>;
+        const RotateCcw = (p) => <Icon {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>;
+
+        // --- UTILS: TIME ---
         const roundToNearest5 = (time) => {
             if (!time) return "08:00";
             const parts = time.split(':');
             if (parts.length < 2) return "08:00";
-            
             let h = parseInt(parts[0], 10);
             let m = parseInt(parts[1], 10);
-            
             if (isNaN(h)) h = 8;
             if (isNaN(m)) m = 0;
-            
             m = Math.round(m / 5) * 5;
-            
-            if (m === 60) {
-                m = 0;
-                h += 1;
-            }
-            
+            if (m === 60) { m = 0; h += 1; }
             if (h >= 24) h = h % 24;
-            
             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
         };
 
@@ -88,7 +109,6 @@
             let m = minutes;
             while (m < 0) m += 1440;
             while (m >= 1440) m -= 1440;
-            
             const h = Math.floor(m / 60);
             const min = Math.round(m % 60);
             return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
@@ -97,12 +117,9 @@
         const calculateSlotMinutes = (start, end) => {
             const startMin = timeToMinutes(start);
             const endMin = timeToMinutes(end);
-            
             if (startMin === endMin) return 0;
-            
             let diff = endMin - startMin;
             if (diff < 0) diff += 1440;
-            
             return diff;
         };
 
@@ -145,7 +162,7 @@
             return [...slots].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
         };
 
-        // --- UTILS: Export Helper ---
+        // --- UTILS: EXPORT CSV ---
         const exportToCSV = (schedule, config) => {
             const headers = ["Diena", "Pradžia", "Pabaiga", "Tipas", "Pareigos", "Nuotolinis"];
             const rows = [headers.join(",")];
@@ -153,9 +170,13 @@
             schedule.forEach(day => {
                 day.slots.forEach(slot => {
                     const role = config.roles.find(r => r.id === slot.roleId);
-                    const roleName = slot.type === 'work' ? (role?.title || 'Nenurodyta') : '-';
-                    const typeName = slot.type === 'work' ? 'Darbas' : 'Pertrauka';
-                    const remote = slot.isRemote ? 'Taip' : 'Ne';
+                    const isWork = slot.type === 'work';
+                    
+                    const roleName = isWork ? (role?.title || 'Nenurodyta') : '-';
+                    const typeName = isWork ? 'Darbas' : 'Pertrauka';
+                    
+                    // Only show Remote status for work slots
+                    const remote = isWork ? (slot.isRemote ? 'Taip' : 'Ne') : '';
 
                     const escape = (str) => `"${(str || '').replace(/"/g, '""')}"`;
 
@@ -179,12 +200,7 @@
             URL.revokeObjectURL(url);
         };
 
-        // --- SERVICES: Gemini ---
-        const getAiClient = () => {
-            if (!API_KEY || API_KEY.includes("JUSU")) return null;
-            return new GoogleGenAI({ apiKey: API_KEY });
-        };
-
+        // --- SERVICES: AI ---
         const generateSimpleSchedule = (roles, totalWeeklyMinutes, startTime, lunchDuration) => {
             const dailyMinutes = totalWeeklyMinutes / 5;
             const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
@@ -194,61 +210,32 @@
             return days.map((day, index) => {
                 const slots = [];
                 let currentMin = startMin;
-                
-                // Chunk 1
                 const chunk1Min = Math.min(240, dailyMinutes); 
-                slots.push({
-                    id: `slot-${index}-1`,
-                    startTime: minutesToTime(currentMin),
-                    endTime: minutesToTime(currentMin + chunk1Min),
-                    type: 'work',
-                    roleId: defaultRole.id,
-                    isRemote: false
-                });
+                slots.push({ id: `slot-${index}-1`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + chunk1Min), type: 'work', roleId: defaultRole.id, isRemote: false });
                 currentMin += chunk1Min;
                 
-                // Break
                 if (dailyMinutes > 240 && lunchDuration > 0) {
-                    slots.push({
-                        id: `slot-${index}-br`,
-                        startTime: minutesToTime(currentMin),
-                        endTime: minutesToTime(currentMin + lunchDuration),
-                        type: 'break',
-                        roleId: '',
-                        isRemote: false
-                    });
+                    slots.push({ id: `slot-${index}-br`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + lunchDuration), type: 'break', roleId: '', isRemote: false });
                     currentMin += lunchDuration;
-                    
-                    // Chunk 2
                     const remaining = dailyMinutes - chunk1Min;
                     if (remaining > 0) {
-                        slots.push({
-                        id: `slot-${index}-2`,
-                        startTime: minutesToTime(currentMin),
-                        endTime: minutesToTime(currentMin + remaining),
-                        type: 'work',
-                        roleId: defaultRole.id,
-                        isRemote: false
-                        });
+                        slots.push({ id: `slot-${index}-2`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + remaining), type: 'work', roleId: defaultRole.id, isRemote: false });
                     }
                 }
-                return {
-                    id: `day-${index}`,
-                    dayName: day,
-                    dateOffset: index,
-                    slots
-                };
+                return { id: `day-${index}`, dayName: day, dateOffset: index, slots };
             });
         };
 
-        const generateSmartSchedule = async (roles, totalWeeklyMinutes, startTime = "08:00", lunchDuration = 30) => {
-            const ai = getAiClient();
-            const targetHours = totalWeeklyMinutes / 60;
-
-            if (!ai) {
-                console.warn("API Key not found or invalid, using fallback.");
+        const generateSmartSchedule = async (roles, totalWeeklyMinutes, startTime, lunchDuration) => {
+            if (!window.GoogleGenAI || !API_KEY || API_KEY.includes("JUSU")) {
+                console.warn("API Key missing or SDK failed to load.");
+                if(!window.GoogleGenAI) alert("Klaida: Nepavyko užkrauti AI modulio. Patikrinkite interneto ryšį.");
+                else if(API_KEY.includes("JUSU")) alert("Klaida: Neįvestas API Raktas kode!");
                 return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration);
             }
+
+            const ai = new window.GoogleGenAI({ apiKey: API_KEY });
+            const targetHours = totalWeeklyMinutes / 60;
 
             try {
                 const rolesDescription = roles.map(r => `${r.title} (ID: ${r.id})`).join(', ');
@@ -259,36 +246,35 @@
                     Rules:
                     1. Return a list of 5 days (Monday - Friday).
                     2. Start the work day at ${startTime}.
-                    3. If work duration > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes in the middle.
+                    3. If work duration > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes.
                     4. Distribute roles reasonably.
                     5. Do NOT count break time towards total working hours.
-                    6. By default, work slots are NOT remote (isRemote: false).
-                    `,
+                    6. By default, work slots are NOT remote (isRemote: false).`,
                     config: {
                         responseMimeType: "application/json",
                         responseSchema: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                            dayName: { type: Type.STRING },
-                            slots: {
-                                type: Type.ARRAY,
-                                items: {
-                                type: Type.OBJECT,
+                            type: window.GenAIType.ARRAY,
+                            items: {
+                                type: window.GenAIType.OBJECT,
                                 properties: {
-                                    startTime: { type: Type.STRING },
-                                    endTime: { type: Type.STRING },
-                                    type: { type: Type.STRING, enum: ["work", "break"] },
-                                    roleName: { type: Type.STRING },
-                                    isRemote: { type: Type.BOOLEAN }
+                                    dayName: { type: window.GenAIType.STRING },
+                                    slots: {
+                                        type: window.GenAIType.ARRAY,
+                                        items: {
+                                            type: window.GenAIType.OBJECT,
+                                            properties: {
+                                                startTime: { type: window.GenAIType.STRING },
+                                                endTime: { type: window.GenAIType.STRING },
+                                                type: { type: window.GenAIType.STRING, enum: ["work", "break"] },
+                                                roleName: { type: window.GenAIType.STRING },
+                                                isRemote: { type: window.GenAIType.BOOLEAN }
+                                            },
+                                            required: ["startTime", "endTime", "type"]
+                                        }
+                                    }
                                 },
-                                required: ["startTime", "endTime", "type"]
-                                }
+                                required: ["dayName", "slots"]
                             }
-                            },
-                            required: ["dayName", "slots"]
-                        }
                         }
                     }
                 });
@@ -308,105 +294,89 @@
                             isRemote: !!s.isRemote
                         };
                     });
-
-                    return {
-                        id: `day-${index}`,
-                        dayName: days[index] || item.dayName,
-                        dateOffset: index,
-                        slots: slots
-                    };
+                    return { id: `day-${index}`, dayName: days[index] || item.dayName, dateOffset: index, slots: slots };
                 });
-
             } catch (error) {
-                console.error("Gemini generation failed:", error);
+                console.error("Gemini fail:", error);
+                alert("AI generavimas nepavyko. Naudojamas paprastas algoritmas.");
                 return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration);
             }
         };
 
         // --- COMPONENTS ---
-        
         const TimeSelect = ({ value, onChange, className = "", selectClassName = "" }) => {
             const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-            const minutes = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'));
-            
             const [rawH, rawM] = (value || "08:00").split(':');
-            const h = rawH?.padStart(2, '0') || '08';
-            const m = rawM?.padStart(2, '0') || '00';
-            const isCustomMinute = !minutes.includes(m);
-
+            const [minuteInput, setMinuteInput] = React.useState(rawM || '00');
+            React.useEffect(() => { setMinuteInput(rawM || '00'); }, [rawM]);
+            const handleHourChange = (e) => { onChange(`${e.target.value}:${rawM}`); };
+            const handleMinuteChange = (e) => {
+                let val = e.target.value;
+                if (val.length > 2) val = val.slice(0, 2);
+                setMinuteInput(val);
+                const num = parseInt(val, 10);
+                if (!isNaN(num) && num >= 0 && num < 60) { onChange(`${rawH}:${val.padStart(2, '0')}`); }
+            };
+            const handleMinuteBlur = () => {
+                let num = parseInt(minuteInput, 10);
+                if (isNaN(num)) num = 0; if (num < 0) num = 0; if (num > 59) num = 59;
+                const formatted = num.toString().padStart(2, '0');
+                setMinuteInput(formatted);
+                onChange(`${rawH}:${formatted}`);
+            };
             return (
                 <div className={`flex items-center gap-1 ${className}`}>
-                <select 
-                    value={h} 
-                    onChange={(e) => onChange(`${e.target.value}:${m}`)}
-                    className={`bg-gray-50 border border-gray-300 text-gray-900 text-center font-mono appearance-none cursor-pointer hover:bg-gray-100 focus:ring-1 focus:ring-blue-500 outline-none block ${selectClassName}`}
-                >
-                    {hours.map(hour => <option key={hour} value={hour}>{hour}</option>)}
-                </select>
-                <span className="text-gray-400 font-bold select-none">:</span>
-                <select 
-                    value={m} 
-                    onChange={(e) => onChange(`${h}:${e.target.value}`)}
-                    className={`bg-gray-50 border border-gray-300 text-gray-900 text-center font-mono appearance-none cursor-pointer hover:bg-gray-100 focus:ring-1 focus:ring-blue-500 outline-none block ${selectClassName}`}
-                >
-                    {minutes.map(min => <option key={min} value={min}>{min}</option>)}
-                    {isCustomMinute && <option value={m} className="text-red-600 font-bold">{m}</option>}
-                </select>
+                    <select value={rawH} onChange={handleHourChange} className={`bg-gray-50 border border-gray-300 text-gray-900 text-center font-mono appearance-none cursor-pointer hover:bg-gray-100 focus:ring-1 focus:ring-blue-500 outline-none block ${selectClassName}`}>
+                        {hours.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                    </select>
+                    <span className="text-gray-400 font-bold select-none">:</span>
+                    <input type="number" min="0" max="59" value={minuteInput} onChange={handleMinuteChange} onBlur={handleMinuteBlur} className={`bg-gray-50 border border-gray-300 text-gray-900 text-center font-mono hover:bg-gray-100 focus:ring-1 focus:ring-blue-500 outline-none block ${selectClassName}`} style={{ width: '3rem' }} />
                 </div>
             );
         };
 
         const DayCard = ({ day, roles, roleUsage, onChange }) => {
-            const [dragOverIndex, setDragOverIndex] = useState(null);
-            const netMinutes = useMemo(() => calculateDayNetMinutes(day.slots), [day.slots]);
+            const [dragOverIndex, setDragOverIndex] = React.useState(null);
+            const [draggedSlotIndex, setDraggedSlotIndex] = React.useState(null);
+            const netMinutes = React.useMemo(() => calculateDayNetMinutes(day.slots), [day.slots]);
             const remainingMinutes = Math.max(0, 12 * 60 - netMinutes);
-            const dailyRoleStats = useMemo(() => getRoleBreakdown(day.slots), [day.slots]);
+            const dailyRoleStats = React.useMemo(() => getRoleBreakdown(day.slots), [day.slots]);
 
             const handleAddSlot = () => {
                 const lastSlot = day.slots[day.slots.length - 1];
-                let newStart = lastSlot ? roundToNearest5(lastSlot.endTime) : "08:00";
-                const newSlot = {
-                    id: Date.now().toString(),
-                    startTime: newStart,
-                    endTime: minutesToTime(timeToMinutes(newStart) + 60),
-                    type: 'work',
-                    roleId: roles[0]?.id || '',
-                    isRemote: false
-                };
+                let newStart = lastSlot ? lastSlot.endTime : "08:00";
+                const newSlot = { id: Date.now().toString(), startTime: newStart, endTime: minutesToTime(timeToMinutes(newStart) + 60), type: 'work', roleId: roles[0]?.id || '', isRemote: false };
                 const newSlots = [...day.slots, newSlot];
-                if (calculateDayNetMinutes(newSlots) > 12 * 60) {
-                    alert('Negalima viršyti 12 valandų darbo laiko per dieną.');
-                    return;
-                }
+                if (calculateDayNetMinutes(newSlots) > 12 * 60) return alert('Negalima viršyti 12 valandų.');
                 onChange({ ...day, slots: sortSlots(newSlots) });
             };
 
             const handleUpdateSlot = (slotId, updates) => {
                 const newSlots = day.slots.map(s => s.id === slotId ? { ...s, ...updates } : s);
-                if (calculateDayNetMinutes(newSlots) > 12 * 60) {
-                    alert('Negalima viršyti 12 valandų darbo laiko per dieną.');
-                    return;
-                }
+                if (calculateDayNetMinutes(newSlots) > 12 * 60) return alert('Negalima viršyti 12 valandų.');
                 onChange({ ...day, slots: updates.startTime ? sortSlots(newSlots) : newSlots });
             };
 
-            const handleRemoveSlot = (slotId) => {
-                onChange({ ...day, slots: day.slots.filter(s => s.id !== slotId) });
-            };
+            const handleRemoveSlot = (slotId) => onChange({ ...day, slots: day.slots.filter(s => s.id !== slotId) });
 
             const onDragStart = (e, index) => {
                 e.dataTransfer.setData('slot-index', index.toString());
                 e.dataTransfer.effectAllowed = 'move';
+                setDraggedSlotIndex(index);
             };
-
             const onDragOver = (e, index) => {
                 e.preventDefault();
-                if (dragOverIndex !== index) setDragOverIndex(index);
+                if (dragOverIndex !== index) {
+                    if(draggedSlotIndex === index) return;
+                    setDragOverIndex(index);
+                }
             };
-
+            const onDragEnd = () => { setDragOverIndex(null); setDraggedSlotIndex(null); };
+            
             const onDrop = (e, dropIndex) => {
                 e.preventDefault();
                 setDragOverIndex(null);
+                setDraggedSlotIndex(null);
                 const dragIndex = parseInt(e.dataTransfer.getData('slot-index'), 10);
                 if (isNaN(dragIndex) || dragIndex === dropIndex) return;
                 const newSlots = [...day.slots];
@@ -417,115 +387,80 @@
 
             return (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full hover:shadow-md transition-shadow">
-                <div className="p-4 pb-3 border-b border-gray-100">
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold uppercase">
-                            {day.dayName.substring(0, 3)}
-                        </div>
-                        <h3 className="font-bold text-gray-800">{day.dayName}</h3>
-                        </div>
-                        <div className="text-right">
-                            <div className={`text-sm font-bold font-mono ${netMinutes > 0 ? 'text-gray-900' : 'text-red-400'}`}>
-                                {formatDuration(netMinutes)}
+                    <div className="p-4 pb-3 border-b border-gray-100">
+                        <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold uppercase">{day.dayName.substring(0, 3)}</div>
+                                <h3 className="font-bold text-gray-800">{day.dayName}</h3>
                             </div>
-                            <div className="text-[10px] text-gray-400 font-medium flex items-center justify-end gap-1 mt-0.5">
-                                <History size={10} />
-                                <span className="opacity-70">Liko:</span>
-                                <span className={`${remainingMinutes < 60 ? 'text-amber-500 font-bold' : 'text-gray-600'}`}>
-                                    {formatDuration(remainingMinutes)}
-                                </span>
+                            <div className="text-right">
+                                <div className={`text-sm font-bold font-mono ${netMinutes > 0 ? 'text-gray-900' : 'text-red-400'}`}>{formatDuration(netMinutes)}</div>
+                                <div className="text-[10px] text-gray-400 font-medium flex items-center justify-end gap-1 mt-0.5"><History size={10} /><span className="opacity-70">Liko:</span><span className={`${remainingMinutes < 60 ? 'text-amber-500 font-bold' : 'text-gray-600'}`}>{formatDuration(remainingMinutes)}</span></div>
                             </div>
                         </div>
+                        {netMinutes > 0 && (
+                            <div className="bg-gray-50 rounded-lg p-2 space-y-1 mt-2 border border-gray-100">
+                                {roles.map(role => {
+                                    const mins = dailyRoleStats[role.id];
+                                    if (!mins) return null;
+                                    return <div key={role.id} className="flex justify-between items-center text-xs"><span className="text-gray-600 font-medium truncate max-w-[150px]">{role.title}</span><span className="font-mono text-gray-800">{formatDuration(mins)}</span></div>;
+                                })}
+                            </div>
+                        )}
                     </div>
-                    {netMinutes > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-2 space-y-1 mt-2 border border-gray-100">
-                            {roles.map(role => {
-                                const mins = dailyRoleStats[role.id];
-                                if (!mins) return null;
-                                return (
-                                    <div key={role.id} className="flex justify-between items-center text-xs">
-                                        <span className="text-gray-600 font-medium truncate max-w-[150px]">{role.title}</span>
-                                        <span className="font-mono text-gray-800">{formatDuration(mins)}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+                    <div className="p-4 space-y-2 flex-grow">
+                        {day.slots.map((slot, index) => {
+                            const currentRole = roles.find(r => r.id === slot.roleId);
+                            let isOverBudget = false;
+                            if (slot.type === 'work' && currentRole) {
+                                const targetMin = (currentRole.hours * 60) + currentRole.minutes;
+                                const usedMin = roleUsage[currentRole.id] || 0;
+                                if (usedMin > targetMin + 5) isOverBudget = true;
+                            }
+                            const isDragged = draggedSlotIndex === index;
+                            const isDropTarget = dragOverIndex === index && !isDragged;
+                            const showTopIndicator = isDropTarget && draggedSlotIndex !== null && draggedSlotIndex > index;
+                            const showBottomIndicator = isDropTarget && draggedSlotIndex !== null && draggedSlotIndex < index;
 
-                <div className="p-4 space-y-2 flex-grow">
-                    {day.slots.map((slot, index) => {
-                        const currentRole = roles.find(r => r.id === slot.roleId);
-                        let isOverBudget = false;
-                        if (slot.type === 'work' && currentRole) {
-                            const targetMin = (currentRole.hours * 60) + currentRole.minutes;
-                            const usedMin = roleUsage[currentRole.id] || 0;
-                            if (usedMin > targetMin + 5) isOverBudget = true;
-                        }
-
-                        return (
-                        <div 
-                            key={slot.id} 
-                            draggable
-                            onDragStart={(e) => onDragStart(e, index)}
-                            onDragOver={(e) => onDragOver(e, index)}
-                            onDragLeave={() => setDragOverIndex(null)}
-                            onDragEnd={() => setDragOverIndex(null)}
-                            onDrop={(e) => onDrop(e, index)}
-                            className={`relative group flex flex-col items-start gap-2 p-2 rounded-lg border transition-all ${
-                            slot.type === 'break' ? 'bg-orange-50 border-orange-100' : isOverBudget ? 'bg-red-50 border-red-200' : slot.isRemote ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-gray-200'
-                            } ${dragOverIndex === index ? 'border-t-4 border-t-blue-400' : ''}`}
-                        >
-                            <div className="flex items-center justify-between w-full gap-2">
-                                <div className="text-gray-300 cursor-grab hover:text-gray-500 flex-shrink-0 active:cursor-grabbing">
-                                    <GripVertical size={14} />
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <TimeSelect value={slot.startTime} onChange={(v) => handleUpdateSlot(slot.id, { startTime: v })} selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"/>
-                                    <span className="text-gray-300 text-xs">-</span>
-                                    <TimeSelect value={slot.endTime} onChange={(v) => handleUpdateSlot(slot.id, { endTime: v })} selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"/>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <button onClick={() => handleUpdateSlot(slot.id, { type: slot.type === 'work' ? 'break' : 'work' })} className={`p-1.5 rounded hover:bg-black/5 transition-colors ${slot.type === 'break' ? 'text-orange-500' : 'text-gray-400'}`}>
-                                        {slot.type === 'break' ? <Coffee size={14}/> : <Briefcase size={14}/>}
-                                    </button>
-                                    {slot.type === 'work' && (
-                                        <button onClick={() => handleUpdateSlot(slot.id, { isRemote: !slot.isRemote })} className={`p-1.5 rounded transition-colors flex items-center justify-center ${slot.isRemote ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400 hover:bg-gray-100'}`}>
-                                            {slot.isRemote ? <MonitorSmartphone size={14} /> : <Building2 size={14} />}
-                                        </button>
-                                    )}
-                                    <button onClick={() => handleRemoveSlot(slot.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 size={14} /></button>
-                                </div>
-                            </div>
-                            <div className="w-full pl-5">
-                                {slot.type === 'work' ? (
-                                    <div className="flex flex-col gap-1">
-                                        <div className="relative w-full flex items-center gap-1">
-                                            <select value={slot.roleId} onChange={(e) => handleUpdateSlot(slot.id, { roleId: e.target.value })} className={`w-full text-xs p-1.5 pr-6 bg-transparent border rounded focus:outline-none font-medium appearance-none cursor-pointer ${isOverBudget ? 'text-red-700 border-red-300 bg-red-100/50' : 'text-gray-700 border-gray-200 bg-white'}`}>
-                                                {roles.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
-                                            </select>
-                                            <Briefcase size={12} className={`absolute right-2 top-2 pointer-events-none ${isOverBudget ? 'text-red-400' : 'text-gray-400'}`}/>
-                                        </div>
-                                        {slot.isRemote && (
-                                            <div className="flex items-center gap-1.5 text-[10px] text-indigo-600 font-bold px-0.5">
-                                                <MonitorSmartphone size={10} /> <span>Nuotolinis</span>
+                            return (
+                                <div key={slot.id} onDragOver={(e) => onDragOver(e, index)} onDrop={(e) => onDrop(e, index)} className="transition-all duration-200 ease-in-out">
+                                    {showTopIndicator && <div className="w-full h-1 bg-blue-500 rounded-full mx-auto mb-2 animate-pulse shadow-sm" />}
+                                    <div draggable onDragStart={(e) => onDragStart(e, index)} onDragEnd={onDragEnd} className={`relative group flex flex-col items-start gap-2 p-2 rounded-lg border transition-all ${slot.type === 'break' ? 'bg-orange-50 border-orange-100' : isOverBudget ? 'bg-red-50 border-red-200' : slot.isRemote ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-gray-200'} ${isDragged ? 'opacity-50 border-dashed border-blue-400 bg-blue-50 scale-[0.99]' : ''} ${isDropTarget && !showTopIndicator && !showBottomIndicator ? 'ring-2 ring-blue-400 ring-offset-2' : ''}`}>
+                                        <div className="flex items-center justify-between w-full gap-2">
+                                            <div className="text-gray-300 cursor-grab hover:text-gray-500 flex-shrink-0 active:cursor-grabbing"><GripVertical size={14} /></div>
+                                            <div className="flex items-center gap-1">
+                                                <TimeSelect value={slot.startTime} onChange={(v) => handleUpdateSlot(slot.id, { startTime: v })} selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"/>
+                                                <span className="text-gray-300 text-xs">-</span>
+                                                <TimeSelect value={slot.endTime} onChange={(v) => handleUpdateSlot(slot.id, { endTime: v })} selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"/>
                                             </div>
-                                        )}
+                                            <div className="flex items-center gap-1">
+                                                <button onClick={() => handleUpdateSlot(slot.id, { type: slot.type === 'work' ? 'break' : 'work' })} className={`p-1.5 rounded hover:bg-black/5 transition-colors ${slot.type === 'break' ? 'text-orange-500' : 'text-gray-400'}`}>{slot.type === 'break' ? <Coffee size={14}/> : <Briefcase size={14}/>}</button>
+                                                {slot.type === 'work' && (
+                                                    <button onClick={() => handleUpdateSlot(slot.id, { isRemote: !slot.isRemote })} className={`p-1.5 rounded transition-colors flex items-center justify-center ${slot.isRemote ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400 hover:bg-gray-100'}`}>{slot.isRemote ? <MonitorSmartphone size={14} /> : <Building2 size={14} />}</button>
+                                                )}
+                                                <button onClick={() => handleRemoveSlot(slot.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 size={14} /></button>
+                                            </div>
+                                        </div>
+                                        <div className="w-full pl-5">
+                                            {slot.type === 'work' ? (
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="relative w-full flex items-center gap-1">
+                                                        <select value={slot.roleId} onChange={(e) => handleUpdateSlot(slot.id, { roleId: e.target.value })} className={`w-full text-xs p-1.5 pr-6 bg-transparent border rounded focus:outline-none font-medium appearance-none cursor-pointer ${isOverBudget ? 'text-red-700 border-red-300 bg-red-100/50' : 'text-gray-700 border-gray-200 bg-white'}`}>{roles.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}</select>
+                                                        <Briefcase size={12} className={`absolute right-2 top-2 pointer-events-none ${isOverBudget ? 'text-red-400' : 'text-gray-400'}`}/>
+                                                    </div>
+                                                    {slot.isRemote && <div className="flex items-center gap-1.5 text-[10px] text-indigo-600 font-bold px-0.5"><MonitorSmartphone size={10} /> <span>Nuotolinis</span></div>}
+                                                </div>
+                                            ) : (
+                                                <div className="w-full text-center py-1.5 rounded bg-orange-100/50 border border-orange-100 flex justify-center gap-1 text-xs text-orange-600 font-medium"><Coffee size={12} /><span>Pertrauka</span></div>
+                                            )}
+                                        </div>
                                     </div>
-                                ) : (
-                                    <div className="w-full text-center py-1.5 rounded bg-orange-100/50 border border-orange-100">
-                                        <div className="flex items-center justify-center gap-1 text-xs text-orange-600 font-medium"><Coffee size={12} /><span>Pertrauka</span></div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )})}
-                    
-                    <button onClick={handleAddSlot} className="w-full py-2 border border-dashed border-gray-300 text-gray-500 rounded-lg hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-xs font-medium flex items-center justify-center gap-1 mt-2">
-                        <Plus size={14} /> Pridėti laiką
-                    </button>
-                </div>
+                                    {showBottomIndicator && <div className="w-full h-1 bg-blue-500 rounded-full mx-auto mt-2 animate-pulse shadow-sm" />}
+                                </div>
+                            );
+                        })}
+                        <button onClick={handleAddSlot} className="w-full py-2 border border-dashed border-gray-300 text-gray-500 rounded-lg hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-xs font-medium flex items-center justify-center gap-1 mt-2"><Plus size={14} /> Pridėti laiką</button>
+                    </div>
                 </div>
             );
         };
@@ -536,7 +471,7 @@
             const diff = totalMinutes - mainTargetMinutes;
             const totalRemote = schedule.reduce((sum, day) => sum + calculateDayRemoteMinutes(day.slots), 0);
             
-            const actualRoleMinutes = useMemo(() => {
+            const actualRoleMinutes = React.useMemo(() => {
                 const stats = {};
                 schedule.forEach(day => {
                     day.slots.forEach(slot => {
@@ -564,25 +499,67 @@
             };
 
             const handleExportTxt = () => {
-                let content = `DARBO LAIKO GRAFIKAS\n====================\nDarbuotojas: ${config.fullName}\n\n`;
+                let content = `DARBO LAIKO GRAFIKAS\n`;
+                content += `========================================\n`;
+                content += `Darbuotojas: ${config.fullName}\n`;
+                content += `Sugeneruota: ${new Date().toLocaleDateString('lt-LT')}\n`;
+                content += `----------------------------------------\n\n`;
+
+                // Weekly Summary
+                content += `SAVAITĖS SUVESTINĖ:\n`;
+                config.roles.forEach(role => {
+                    const targetMin = role.hours * 60 + role.minutes;
+                    const actualMin = actualRoleMinutes[role.id] || 0;
+                    content += `- ${role.title}: ${formatHM(actualMin)} (Tikslas: ${formatHM(targetMin)})\n`;
+                });
+                
+                content += `\n`;
+                content += `Bendra savaitės trukmė: ${formatHM(mainTargetMinutes)}\n`;
+                content += `Faktinis darbo laikas: ${formatHM(totalMinutes)}\n`;
+                content += `Faktinis nuotolinis laikas: ${formatHM(totalRemote)}\n`;
+                content += `========================================\n\n`;
+
                 schedule.forEach(day => {
-                    content += `${day.dayName.toUpperCase()} (Dirbta: ${formatDuration(calculateDayNetMinutes(day.slots))})\n`;
+                    const net = calculateDayNetMinutes(day.slots);
+                    content += `----------------------------------------\n`;
+                    content += `${day.dayName.toUpperCase()} (${formatHM(net)})\n`;
+                    content += `----------------------------------------\n`;
+                    
+                    // Slots
+                    const dailyStats = {};
                     day.slots.forEach(slot => {
                         const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
-                        if (slot.type === 'break') content += `  ${slot.startTime}-${slot.endTime} PERTRAUKA\n`;
-                        else {
+                        if (slot.type === 'break') {
+                            content += `  ${slot.startTime} - ${slot.endTime} | PERTRAUKA (${dur} min)\n`;
+                        } else {
                             const r = config.roles.find(x => x.id === slot.roleId);
-                            content += `  ${slot.startTime}-${slot.endTime} ${r ? r.title : 'Darbas'} (${slot.isRemote ? 'Nuotolinis' : 'Biure'}) - ${formatDuration(dur)}\n`;
+                            const roleTitle = r ? r.title : 'Darbas';
+                            const loc = slot.isRemote ? 'NUOTOLINIU' : 'BIURE';
+                            content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} (${loc}) | ${formatHM(dur)}\n`;
+                            dailyStats[slot.roleId] = (dailyStats[slot.roleId] || 0) + dur;
                         }
                     });
+
+                    // Daily Breakdown
+                    const workedRoles = Object.keys(dailyStats);
+                    if (workedRoles.length > 0) {
+                        content += `\n  Dienos suvestinė:\n`;
+                        config.roles.forEach(role => {
+                            if (dailyStats[role.id]) {
+                                content += `  - ${role.title}: ${formatHM(dailyStats[role.id])}\n`;
+                            }
+                        });
+                    }
                     content += `\n`;
                 });
+
                 const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = `${config.fullName}_Grafikas.txt`;
+                link.download = `${config.fullName.replace(/\s+/g, '_')}_Grafikas.txt`;
                 link.click();
+                URL.revokeObjectURL(url);
             };
 
             return (
@@ -591,7 +568,7 @@
                         <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><User className="text-blue-600" size={20}/> {config.fullName}</h2>
                         <div className="flex gap-2">
                             <button onClick={handleExportTxt} className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"><FileText size={16} /><span className="hidden sm:inline">TXT</span></button>
-                            <button onClick={() => exportToCSV(schedule, config)} className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"><Table size={16} /><span className="hidden sm:inline">CSV</span></button>
+                            <button onClick={() => exportToCSV(schedule, config)} className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"><TableIcon size={16} /><span className="hidden sm:inline">CSV</span></button>
                         </div>
                     </div>
 
@@ -639,22 +616,22 @@
             );
         };
 
-        // --- APP COMPONENT ---
-
+        // --- APP ---
         const App = () => {
-            const [config, setConfig] = useState({
+            const [config, setConfig] = React.useState({
                 fullName: '',
                 roles: [{ id: '1', title: '', hours: 40, minutes: 0 }],
                 defaultStartTime: '08:00',
                 lunchDuration: 30
             });
-            const [schedule, setSchedule] = useState([]);
-            const [loading, setLoading] = useState(false);
-            const [hasGenerated, setHasGenerated] = useState(false);
+            const [schedule, setSchedule] = React.useState([]);
+            const [loading, setLoading] = React.useState(false);
+            const [hasGenerated, setHasGenerated] = React.useState(false);
 
-            const mainScheduleMinutes = useMemo(() => config.roles.reduce((sum, role) => sum + (role.hours * 60) + role.minutes, 0), [config.roles]);
-            
-            const roleUsage = useMemo(() => {
+            const mainScheduleMinutes = React.useMemo(() => config.roles.reduce((sum, role) => sum + (role.hours * 60) + role.minutes, 0), [config.roles]);
+            const totalWeeklyLoadMinutes = mainScheduleMinutes;
+
+            const roleUsage = React.useMemo(() => {
                 const usage = {};
                 config.roles.forEach(r => usage[r.id] = 0);
                 schedule.forEach(day => {
@@ -668,17 +645,25 @@
                 return usage;
             }, [schedule, config.roles]);
 
-            const handleAddRole = () => {
-                if (config.roles.length < 5) setConfig(p => ({ ...p, roles: [...p.roles, { id: Date.now().toString(), title: '', hours: 20, minutes: 0 }] }));
+            const getRoleValidation = (role) => {
+                const errors = {};
+                if (!role.title.trim()) errors.title = "Būtina";
+                const totalMin = (role.hours * 60) + role.minutes;
+                if (totalMin === 0) errors.time = "Laikas?";
+                else if (totalMin > 60 * 60) errors.time = ">60h";
+                else if (totalMin > 40 * 60) errors.warning = ">40h";
+                return errors;
             };
 
-            const handleRemoveRole = (id) => {
-                if (config.roles.length > 1 && confirm("Pašalinti?")) setConfig(p => ({ ...p, roles: p.roles.filter(r => r.id !== id) }));
+            const formatTotalLoad = (minutes) => {
+                const h = Math.floor(minutes / 60);
+                const m = minutes % 60;
+                return `${h} val. ${m} min.`;
             };
 
-            const handleRoleChange = (id, field, value) => {
-                setConfig(p => ({ ...p, roles: p.roles.map(r => r.id === id ? { ...r, [field]: value } : r) }));
-            };
+            const handleAddRole = () => { if (config.roles.length < 5) setConfig(p => ({ ...p, roles: [...p.roles, { id: Date.now().toString(), title: '', hours: 20, minutes: 0 }] })); };
+            const handleRemoveRole = (id) => { if (config.roles.length > 1 && confirm("Pašalinti?")) setConfig(p => ({ ...p, roles: p.roles.filter(r => r.id !== id) })); };
+            const handleRoleChange = (id, field, value) => setConfig(p => ({ ...p, roles: p.roles.map(r => r.id === id ? { ...r, [field]: value } : r) }));
 
             const handleGenerate = async () => {
                 setLoading(true);
@@ -688,7 +673,14 @@
                 setLoading(false);
             };
 
-            const isFormValid = config.fullName.trim() !== '' && config.roles.every(r => r.title.trim() !== '' && ((r.hours * 60) + r.minutes > 0));
+            const isFormValid = React.useMemo(() => {
+                const hasName = config.fullName.trim() !== '';
+                const rolesValid = config.roles.every(r => {
+                    const v = getRoleValidation(r);
+                    return !v.title && !v.time;
+                });
+                return hasName && rolesValid && (mainScheduleMinutes > 0);
+            }, [config.fullName, config.roles, mainScheduleMinutes]);
 
             return (
                 <div className="w-full mx-auto p-4 font-sans bg-transparent max-w-6xl">
@@ -699,29 +691,52 @@
                                 <p className="text-xs text-gray-500">Užpildykite duomenis ir spauskite generuoti.</p>
                             </div>
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-700 mb-1">Darbuotojas</label>
-                                    <input type="text" value={config.fullName} onChange={(e) => setConfig({ ...config, fullName: e.target.value })} className="w-full p-2 text-sm border rounded-lg border-gray-300" placeholder="Vardas Pavardė"/>
-                                </div>
+                                <div><label className="block text-xs font-bold text-gray-700 mb-1">Darbuotojas <span className="text-red-500">*</span></label><input type="text" value={config.fullName} onChange={(e) => setConfig({ ...config, fullName: e.target.value })} className="w-full p-2 text-sm border rounded-lg border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Vardas Pavardė"/></div>
                                 <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
                                     <div><label className="text-[10px] font-bold text-gray-500 uppercase">Pradžia</label><TimeSelect value={config.defaultStartTime} onChange={(v) => setConfig({...config, defaultStartTime: v})} selectClassName="w-full p-1.5 text-sm rounded border-gray-300"/></div>
                                     <div><label className="text-[10px] font-bold text-gray-500 uppercase">Pietūs</label><div className="flex gap-1">{[0, 30, 60].map(d => <button key={d} onClick={() => setConfig({...config, lunchDuration: d})} className={`flex-1 py-1.5 text-xs font-medium rounded border ${config.lunchDuration === d ? 'bg-white border-blue-500 text-blue-700' : 'bg-gray-100 border-transparent text-gray-500'}`}>{d === 0 ? '-' : `${d}m`}</button>)}</div></div>
                                 </div>
                                 <div className="space-y-2">
-                                    <div className="flex justify-between items-end"><label className="text-xs font-bold text-gray-700">Pareigos ir Laikas</label>{config.roles.length < 5 && <button onClick={handleAddRole} className="text-[10px] text-blue-600 flex items-center gap-1"><Plus size={12}/> Pridėti</button>}</div>
-                                    {config.roles.map(role => (
-                                        <div key={role.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-wrap sm:flex-nowrap gap-2 items-center">
-                                            <div className="flex-grow flex items-center gap-2 border-b border-gray-100 pb-1"><Briefcase size={14} className="text-gray-400"/><input type="text" value={role.title} onChange={(e) => handleRoleChange(role.id, 'title', e.target.value)} className="w-full text-sm font-medium outline-none placeholder-gray-300" placeholder="Pareigos"/></div>
-                                            <div className="flex items-center gap-1 shrink-0"><input type="number" value={role.hours} onChange={(e) => handleRoleChange(role.id, 'hours', parseInt(e.target.value)||0)} className="w-12 p-1 border rounded text-center text-sm"/> val <input type="number" value={role.minutes} onChange={(e) => handleRoleChange(role.id, 'minutes', parseInt(e.target.value)||0)} className="w-12 p-1 border rounded text-center text-sm"/> min {config.roles.length > 1 && <button onClick={() => handleRemoveRole(role.id)}><Trash2 size={14} className="text-gray-300 hover:text-red-500"/></button>}</div>
-                                        </div>
-                                    ))}
+                                    <div className="flex justify-between items-end"><label className="text-xs font-bold text-gray-700">Pareigos ir Laikas</label>{config.roles.length < 5 && <button onClick={handleAddRole} className="text-[10px] text-blue-600 flex items-center gap-1 hover:bg-blue-50 px-2 py-0.5 rounded transition-colors"><Plus size={12}/> Pridėti</button>}</div>
+                                    {config.roles.map(role => {
+                                        const validation = getRoleValidation(role);
+                                        return (
+                                            <div key={role.id} className={`bg-white p-3 rounded-lg border shadow-sm transition-colors relative ${validation.time ? 'border-red-200 bg-red-50/50' : 'border-gray-200'}`}>
+                                                <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center">
+                                                    <div className="flex-grow flex flex-col">
+                                                        <div className="flex items-center gap-2 border-b border-gray-100 pb-1">
+                                                            <Briefcase size={14} className="text-gray-400"/>
+                                                            <input type="text" value={role.title} onChange={(e) => handleRoleChange(role.id, 'title', e.target.value)} className="w-full text-sm font-medium outline-none placeholder-gray-300" placeholder="Pareigos"/>
+                                                        </div>
+                                                        {validation.title && <span className="text-[10px] text-red-500 mt-0.5">{validation.title}</span>}
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <input type="number" value={role.hours} onChange={(e) => handleRoleChange(role.id, 'hours', parseInt(e.target.value)||0)} className="w-12 p-1 border rounded text-center text-sm"/> val 
+                                                        <input type="number" value={role.minutes} onChange={(e) => handleRoleChange(role.id, 'minutes', parseInt(e.target.value)||0)} className="w-12 p-1 border rounded text-center text-sm"/> min 
+                                                        {config.roles.length > 1 && <button onClick={() => handleRemoveRole(role.id)}><Trash2 size={14} className="text-gray-300 hover:text-red-500"/></button>}
+                                                    </div>
+                                                </div>
+                                                {(validation.time || validation.warning) && (
+                                                    <div className={`text-[10px] flex items-center gap-1 mt-1 ${validation.time ? 'text-red-600' : 'text-amber-600'}`}>
+                                                        <AlertCircle size={10} /> {validation.time || validation.warning}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                                <button onClick={handleGenerate} disabled={loading || !isFormValid} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : <Sparkles size={18}/>} {loading ? 'Generuojama...' : 'Generuoti Grafiką'}</button>
+
+                                <div className={`p-3 rounded-lg border text-center ${totalWeeklyLoadMinutes > 60 * 60 ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-100'}`}>
+                                    <p className="text-[10px] text-gray-500 uppercase font-bold">Bendra savaitės trukmė</p>
+                                    <p className="text-lg font-bold text-gray-800">{formatTotalLoad(totalWeeklyLoadMinutes)}</p>
+                                </div>
+
+                                <button onClick={handleGenerate} disabled={loading || !isFormValid} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-70 flex items-center justify-center gap-2 disabled:cursor-not-allowed shadow-sm">{loading ? <Loader2 className="animate-spin" size={18}/> : <Sparkles size={18}/>} {loading ? 'Generuojama...' : 'Generuoti Grafiką'}</button>
                             </div>
                         </div>
                     ) : (
                         <div className="animate-fade-in space-y-6">
-                            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 sticky top-2 z-20">
+                            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 sticky top-2 z-20 shadow-sm">
                                 <h2 className="font-bold text-gray-700 truncate mr-2">{config.fullName}</h2>
                                 <div className="flex gap-2">
                                     <button onClick={() => exportToCSV(schedule, config)} className="text-xs flex items-center gap-1 text-gray-600 bg-gray-50 px-3 py-1.5 rounded border hover:bg-green-50 hover:text-green-600"><Download size={14}/> <span className="hidden sm:inline">CSV</span></button>
@@ -738,7 +753,7 @@
             );
         };
 
-        const root = createRoot(document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>

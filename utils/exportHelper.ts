@@ -1,3 +1,4 @@
+
 import { DaySchedule, WorkConfig } from '../types';
 
 export const exportToCSV = (schedule: DaySchedule[], config: WorkConfig) => {
@@ -8,9 +9,13 @@ export const exportToCSV = (schedule: DaySchedule[], config: WorkConfig) => {
   schedule.forEach(day => {
       day.slots.forEach(slot => {
           const role = config.roles.find(r => r.id === slot.roleId);
-          const roleName = slot.type === 'work' ? (role?.title || 'Nenurodyta') : '-';
-          const typeName = slot.type === 'work' ? 'Darbas' : 'Pertrauka';
-          const remote = slot.isRemote ? 'Taip' : 'Ne';
+          const isWork = slot.type === 'work';
+          
+          const roleName = isWork ? (role?.title || 'Nenurodyta') : '-';
+          const typeName = isWork ? 'Darbas' : 'Pertrauka';
+          
+          // Only show Remote status for work slots
+          const remote = isWork ? (slot.isRemote ? 'Taip' : 'Ne') : '';
 
           // CSV escaping
           const escape = (str: string) => `"${str.replace(/"/g, '""')}"`;

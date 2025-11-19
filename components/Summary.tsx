@@ -78,40 +78,60 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
     let content = `DARBO LAIKO GRAFIKAS\n`;
     content += `========================================\n`;
     content += `Darbuotojas: ${config.fullName}\n`;
-    content += `----------------------------------------\n`;
-    content += `PAREIGOS (Suplanuota / Tikslas):\n`;
+    content += `Sugeneruota: ${new Date().toLocaleDateString('lt-LT')}\n`;
+    content += `----------------------------------------\n\n`;
+    
+    // Weekly Summary Breakdown
+    content += `SAVAITĖS SUVESTINĖ:\n`;
     config.roles.forEach(role => {
         const targetMin = role.hours * 60 + role.minutes;
         const actualMin = actualRoleMinutes[role.id] || 0;
-        content += `- ${role.title}: ${formatHM(actualMin)} / ${formatHM(targetMin)}\n`;
+        content += `- ${role.title}: ${formatHM(actualMin)} (Tikslas: ${formatHM(targetMin)})\n`;
     });
-    content += `----------------------------------------\n`;
-    content += `BENDRA SAVAITĖS TRUKMĖ: ${formatHM(mainTargetMinutes)}\n`;
-    content += `Faktinis nuotolinis grafike: ${formatHM(totalRemoteScheduledMinutes)}\n`;
+    
+    content += `\n`;
+    content += `Bendra savaitės trukmė: ${formatHM(mainTargetMinutes)}\n`;
+    content += `Faktinis darbo laikas: ${formatHM(totalMinutes)}\n`;
+    content += `Faktinis nuotolinis laikas: ${formatHM(totalRemoteScheduledMinutes)}\n`;
     if (totalBreakMinutes > 0) {
         content += `Pietų pertraukos (viso): ${formatHM(totalBreakMinutes)}\n`;
     }
-    content += `----------------------------------------\n`;
-    content += `Suplanuota grafike (darbo laikas): ${formatHM(totalMinutes)}\n`;
     content += `========================================\n\n`;
 
     schedule.forEach(day => {
       const net = calculateDayNetMinutes(day.slots);
-      content += `${day.dayName.toUpperCase()}\n`;
-      content += `Dirbta: ${formatHM(net)}\n`;
-      content += `Detaliai:\n`;
+      content += `----------------------------------------\n`;
+      content += `${day.dayName.toUpperCase()} (${formatHM(net)})\n`;
+      content += `----------------------------------------\n`;
+      
+      const dailyStats: Record<string, number> = {};
       
       day.slots.forEach(slot => {
           const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
           if (slot.type === 'break') {
-              content += `  [${slot.startTime} - ${slot.endTime}] PERTRAUKA (${dur} min)\n`;
+              content += `  ${slot.startTime} - ${slot.endTime} | PERTRAUKA (${dur} min)\n`;
           } else {
               const role = config.roles.find(r => r.id === slot.roleId);
               const roleTitle = role ? role.title : 'Darbas';
               const loc = slot.isRemote ? 'NUOTOLINIU' : 'BIURE';
-              content += `  [${slot.startTime} - ${slot.endTime}] ${roleTitle} (${loc}) - ${formatHM(dur)}\n`;
+              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} (${loc}) | ${formatHM(dur)}\n`;
+              
+              // Accumulate daily stats
+              dailyStats[slot.roleId] = (dailyStats[slot.roleId] || 0) + dur;
           }
       });
+
+      // Daily breakdown summary
+      const workedRoles = Object.keys(dailyStats);
+      if (workedRoles.length > 0) {
+          content += `\n  Dienos suvestinė:\n`;
+          config.roles.forEach(role => {
+              if (dailyStats[role.id]) {
+                  content += `  - ${role.title}: ${formatHM(dailyStats[role.id])}\n`;
+              }
+          });
+      }
+
       content += `\n`;
     });
 

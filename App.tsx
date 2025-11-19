@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { DaySchedule, WorkConfig, JobRole } from './types';
 import { generateSmartSchedule } from './services/geminiService';
@@ -56,10 +55,10 @@ const App: React.FC = () => {
 
     if (totalMin === 0) {
       errors.time = "Nurodykite laiką";
-    } else if (totalMin > 84 * 60) {
-       errors.time = ">84h";
-    } else if (totalMin > 48 * 60) {
-       errors.warning = ">48h";
+    } else if (totalMin > 60 * 60) {
+       errors.time = ">60h";
+    } else if (totalMin > 40 * 60) {
+       errors.warning = ">40h";
     }
 
     return errors;
@@ -258,7 +257,7 @@ const App: React.FC = () => {
                         </div>
                       </div>
                       {(validation.time || validation.warning) && (
-                          <div className="text-[10px] text-amber-600 flex items-center gap-1 mt-1">
+                          <div className={`text-[10px] flex items-center gap-1 mt-1 ${validation.time ? 'text-red-600' : 'text-amber-600'}`}>
                               <AlertCircle size={10} /> {validation.time || validation.warning}
                           </div>
                       )}
