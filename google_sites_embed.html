@@ -202,27 +202,71 @@
 
         // --- SERVICES: AI ---
         const generateSimpleSchedule = (roles, totalWeeklyMinutes, startTime, lunchDuration) => {
-            const dailyMinutes = totalWeeklyMinutes / 5;
+            const dailyMinutesTarget = totalWeeklyMinutes / 5;
             const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
-            const defaultRole = roles[0];
             const startMin = timeToMinutes(startTime);
 
-            return days.map((day, index) => {
+            // Queue of roles with their remaining minutes
+            let roleQueue = roles.map(r => ({
+                id: r.id,
+                remaining: (r.hours * 60) + r.minutes
+            }));
+
+            return days.map((day, dayIndex) => {
                 const slots = [];
-                let currentMin = startMin;
-                const chunk1Min = Math.min(240, dailyMinutes); 
-                slots.push({ id: `slot-${index}-1`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + chunk1Min), type: 'work', roleId: defaultRole.id, isRemote: false });
-                currentMin += chunk1Min;
-                
-                if (dailyMinutes > 240 && lunchDuration > 0) {
-                    slots.push({ id: `slot-${index}-br`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + lunchDuration), type: 'break', roleId: '', isRemote: false });
-                    currentMin += lunchDuration;
-                    const remaining = dailyMinutes - chunk1Min;
-                    if (remaining > 0) {
-                        slots.push({ id: `slot-${index}-2`, startTime: minutesToTime(currentMin), endTime: minutesToTime(currentMin + remaining), type: 'work', roleId: defaultRole.id, isRemote: false });
+                let currentClock = startMin;
+                let dayWorkMinutes = 0;
+                let hasBreak = false;
+
+                while (dayWorkMinutes < dailyMinutesTarget) {
+                    // Find first role with minutes remaining
+                    const activeRoleIndex = roleQueue.findIndex(r => r.remaining > 0);
+                    if (activeRoleIndex === -1) break; // No more work
+
+                    const activeRole = roleQueue[activeRoleIndex];
+                    
+                    // Determine max duration for this slot
+                    // Cannot exceed remaining day limit
+                    const remainingForDay = dailyMinutesTarget - dayWorkMinutes;
+                    let maxChunkSize = remainingForDay;
+
+                    // Cannot exceed break point (4 hours) if break hasn't happened
+                    if (!hasBreak && dayWorkMinutes < 240 && (dayWorkMinutes + maxChunkSize) > 240) {
+                        maxChunkSize = 240 - dayWorkMinutes;
+                    }
+
+                    const duration = Math.min(maxChunkSize, activeRole.remaining);
+                    
+                    if (duration > 0) {
+                        slots.push({
+                            id: `slot-${dayIndex}-${slots.length}`,
+                            startTime: minutesToTime(currentClock),
+                            endTime: minutesToTime(currentClock + duration),
+                            type: 'work',
+                            roleId: activeRole.id,
+                            isRemote: false
+                        });
+                        currentClock += duration;
+                        dayWorkMinutes += duration;
+                        activeRole.remaining -= duration;
+                    }
+
+                    // Insert break
+                    if (lunchDuration > 0 && !hasBreak && dayWorkMinutes >= 240 && dayWorkMinutes < dailyMinutesTarget) {
+                        slots.push({
+                            id: `slot-${dayIndex}-br`,
+                            startTime: minutesToTime(currentClock),
+                            endTime: minutesToTime(currentClock + lunchDuration),
+                            type: 'break',
+                            roleId: '',
+                            isRemote: false
+                        });
+                        currentClock += lunchDuration;
+                        hasBreak = true;
                     }
                 }
-                return { id: `day-${index}`, dayName: day, dateOffset: index, slots };
+
+                return { id: `day-${dayIndex}`, dayName: day, dateOffset: dayIndex, slots };
             });
         };
 
@@ -236,20 +280,20 @@
 
             const ai = new window.GoogleGenAI({ apiKey: API_KEY });
             const targetHours = totalWeeklyMinutes / 60;
+            const rolesDescription = roles.map(r => `${r.title} (ID: ${r.id}, Duration: ${r.hours}h ${r.minutes}m)`).join(', ');
 
             try {
-                const rolesDescription = roles.map(r => `${r.title} (ID: ${r.id})`).join(', ');
                 const response = await ai.models.generateContent({
                     model: "gemini-2.5-flash",
                     contents: `Create a weekly work schedule (Monday to Friday) based on these roles: [${rolesDescription}].
                     Total target working hours: ${targetHours.toFixed(2)}.
                     Rules:
-                    1. Return a list of 5 days (Monday - Friday).
-                    2. Start the work day at ${startTime}.
-                    3. If work duration > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes.
-                    4. Distribute roles reasonably.
-                    5. Do NOT count break time towards total working hours.
-                    6. By default, work slots are NOT remote (isRemote: false).`,
+                    1. Return a list of 5 days.
+                    2. Start day at ${startTime}.
+                    3. If work > 4h and lunchDuration > 0, insert 'break' of ${lunchDuration} min in middle.
+                    4. Distribute roles strictly by assigned duration.
+                    5. Use exact 'roleId' provided.
+                    `,
                     config: {
                         responseMimeType: "application/json",
                         responseSchema: {
@@ -266,6 +310,7 @@
                                                 startTime: { type: window.GenAIType.STRING },
                                                 endTime: { type: window.GenAIType.STRING },
                                                 type: { type: window.GenAIType.STRING, enum: ["work", "break"] },
+                                                roleId: { type: window.GenAIType.STRING },
                                                 roleName: { type: window.GenAIType.STRING },
                                                 isRemote: { type: window.GenAIType.BOOLEAN }
                                             },
@@ -284,7 +329,12 @@
                 
                 return rawData.map((item, index) => {
                     const slots = (item.slots || []).map((s, sIdx) => {
-                        const matchedRole = roles.find(r => r.title.toLowerCase() === (s.roleName || "").toLowerCase()) || roles[0];
+                        let matchedRole = roles.find(r => r.id === s.roleId);
+                        if (!matchedRole && s.roleName) {
+                            matchedRole = roles.find(r => r.title.toLowerCase() === s.roleName.toLowerCase());
+                        }
+                        if (!matchedRole) matchedRole = roles[0];
+
                         return {
                             id: `slot-${index}-${sIdx}`,
                             startTime: roundToNearest5(s.startTime),

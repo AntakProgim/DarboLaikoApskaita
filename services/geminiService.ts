@@ -28,7 +28,7 @@ export const generateSmartSchedule = async (
   const targetHours = totalWeeklyMinutes / 60;
 
   const rolesDescription = roles
-    .map(r => `${r.title} (ID: ${r.id})`)
+    .map(r => `${r.title} (ID: ${r.id}, Duration: ${r.hours}h ${r.minutes}m)`)
     .join(', ');
     
   if (!ai) {
@@ -46,10 +46,11 @@ export const generateSmartSchedule = async (
       Rules:
       1. Return a list of 5 days (Monday - Friday).
       2. Start the work day at ${startTime} (unless logic dictates otherwise).
-      3. If the total work duration in a day > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes in the middle.
-      4. Distribute the roles reasonably.
+      3. If the total work duration in a day > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes in the middle (usually after 4 hours).
+      4. Distribute the roles strictly according to their assigned duration.
       5. Do NOT count break time towards the total working hours.
       6. By default, work slots are NOT remote (isRemote: false).
+      7. Use the exact 'roleId' provided in the description for each slot.
       `,
       config: {
         responseMimeType: "application/json",
@@ -67,6 +68,7 @@ export const generateSmartSchedule = async (
                     startTime: { type: Type.STRING },
                     endTime: { type: Type.STRING },
                     type: { type: Type.STRING, enum: ["work", "break"] },
+                    roleId: { type: Type.STRING },
                     roleName: { type: Type.STRING },
                     isRemote: { type: Type.BOOLEAN }
                   },
@@ -86,8 +88,12 @@ export const generateSmartSchedule = async (
     // Map raw response to our Typed structure
     return rawData.map((item: any, index: number) => {
       const slots: DaySlot[] = (item.slots || []).map((s: any, sIdx: number) => {
-        // Try to find matching role ID by name, or default to first role
-        const matchedRole = roles.find(r => r.title.toLowerCase() === (s.roleName || "").toLowerCase()) || roles[0];
+        // Prioritize ID match, then Name match, then Default
+        let matchedRole = roles.find(r => r.id === s.roleId);
+        if (!matchedRole && s.roleName) {
+            matchedRole = roles.find(r => r.title.toLowerCase() === s.roleName.toLowerCase());
+        }
+        if (!matchedRole) matchedRole = roles[0];
         
         return {
           id: `slot-${index}-${sIdx}`,
@@ -119,61 +125,84 @@ const generateSimpleSchedule = (
     startTime: string,
     lunchDuration: number
 ): DaySchedule[] => {
-  const dailyMinutes = totalWeeklyMinutes / 5;
+  const dailyMinutesTarget = totalWeeklyMinutes / 5; // Average min per day
   const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
-  const defaultRole = roles[0];
   const startMin = timeToMinutes(startTime);
 
-  return days.map((day, index) => {
-    
-    // Simple logic: Work -> Break -> Work
-    // First chunk: 4 hours (240 min) or less
-    
+  // Create a queue of minutes per role
+  let roleQueue = roles.map(r => ({
+      id: r.id,
+      remaining: (r.hours * 60) + r.minutes
+  }));
+
+  return days.map((day, dayIndex) => {
     const slots: DaySlot[] = [];
-    let currentMin = startMin;
+    let currentClock = startMin;
     
-    // Chunk 1
-    const chunk1Min = Math.min(240, dailyMinutes); 
-    slots.push({
-      id: `slot-${index}-1`,
-      startTime: minutesToTime(currentMin),
-      endTime: minutesToTime(currentMin + chunk1Min),
-      type: 'work',
-      roleId: defaultRole.id,
-      isRemote: false
-    });
-    currentMin += chunk1Min;
-    
-    // Break (only if configured and day is long enough to warrant one)
-    if (dailyMinutes > 240 && lunchDuration > 0) {
-       slots.push({
-        id: `slot-${index}-br`,
-        startTime: minutesToTime(currentMin),
-        endTime: minutesToTime(currentMin + lunchDuration),
-        type: 'break',
-        roleId: '',
-        isRemote: false
-      });
-      currentMin += lunchDuration;
-      
-      // Chunk 2
-      const remaining = dailyMinutes - chunk1Min;
-      if (remaining > 0) {
-        slots.push({
-          id: `slot-${index}-2`,
-          startTime: minutesToTime(currentMin),
-          endTime: minutesToTime(currentMin + remaining),
-          type: 'work',
-          roleId: defaultRole.id,
-          isRemote: false
-        });
-      }
+    // We try to fill this day up to 'dailyMinutesTarget', but logic handles if roles run out
+    let dayWorkMinutes = 0;
+    let hasBreak = false;
+
+    // While we haven't hit the day limit and there are roles left
+    while (dayWorkMinutes < dailyMinutesTarget) {
+        // Find first role with minutes remaining
+        const activeRoleIndex = roleQueue.findIndex(r => r.remaining > 0);
+        if (activeRoleIndex === -1) break; // All work done for the week
+
+        const activeRole = roleQueue[activeRoleIndex];
+        
+        // Determine chunk size
+        // Max chunk before break is usually 4 hours (240m)
+        // Max remaining for day
+        const remainingForDay = dailyMinutesTarget - dayWorkMinutes;
+        
+        // If we haven't had a break and we are reaching > 4 hours, limit this chunk
+        let maxChunkSize = remainingForDay;
+        
+        if (!hasBreak && dayWorkMinutes < 240 && (dayWorkMinutes + maxChunkSize) > 240) {
+             // Cap at the break point
+             maxChunkSize = 240 - dayWorkMinutes;
+        }
+
+        // Also limit by how much the role has left
+        const duration = Math.min(maxChunkSize, activeRole.remaining);
+        
+        // Create WORK slot
+        if (duration > 0) {
+            slots.push({
+                id: `slot-${dayIndex}-${slots.length}`,
+                startTime: minutesToTime(currentClock),
+                endTime: minutesToTime(currentClock + duration),
+                type: 'work',
+                roleId: activeRole.id,
+                isRemote: false
+            });
+
+            currentClock += duration;
+            dayWorkMinutes += duration;
+            activeRole.remaining -= duration;
+        }
+
+        // Insert BREAK if needed
+        // If we just hit 240 minutes (4 hours) or exceeded it slightly, and haven't had break
+        if (lunchDuration > 0 && !hasBreak && dayWorkMinutes >= 240 && dayWorkMinutes < dailyMinutesTarget) {
+            slots.push({
+                id: `slot-${dayIndex}-br`,
+                startTime: minutesToTime(currentClock),
+                endTime: minutesToTime(currentClock + lunchDuration),
+                type: 'break',
+                roleId: '',
+                isRemote: false
+            });
+            currentClock += lunchDuration;
+            hasBreak = true;
+        }
     }
 
     return {
-      id: `day-${index}`,
+      id: `day-${dayIndex}`,
       dayName: day,
-      dateOffset: index,
+      dateOffset: dayIndex,
       slots
     };
   });
