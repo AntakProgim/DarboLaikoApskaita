@@ -5,7 +5,7 @@ import { DayCard } from './components/DayCard';
 import { Summary } from './components/Summary';
 import { TimeSelect } from './components/TimeSelect';
 import { calculateSlotMinutes } from './utils/timeHelper';
-import { exportToCSV } from './utils/exportHelper';
+import { exportToTXT } from './utils/exportHelper';
 import { Sparkles, Loader2, Plus, Trash2, Briefcase, Building2, AlertCircle, Info, Clock, Coffee, RotateCcw, Download } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -288,12 +288,12 @@ const App: React.FC = () => {
                 <h2 className="font-bold text-gray-700 text-sm sm:text-base truncate mr-2">{config.fullName}</h2>
                 <div className="flex gap-2">
                     <button 
-                        onClick={() => exportToCSV(schedule, config)}
+                        onClick={() => exportToTXT(schedule, config)}
                         className="text-xs flex items-center gap-1 text-gray-600 hover:text-green-600 bg-gray-50 hover:bg-green-50 px-3 py-1.5 rounded border border-gray-200 transition-colors"
-                        title="Atsisiųsti CSV"
+                        title="Atsisiųsti TXT"
                     >
                         <Download size={14}/> 
-                        <span className="hidden sm:inline">CSV</span>
+                        <span className="hidden sm:inline">TXT</span>
                     </button>
                     <button 
                         onClick={handleReset}

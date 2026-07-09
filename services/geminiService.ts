@@ -4,7 +4,8 @@ import { DaySchedule, JobRole, DaySlot } from "../types";
 import { timeToMinutes, minutesToTime, roundToNearest5 } from "../utils/timeHelper";
 
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
+  // Vite exposes environment variables via import.meta.env
+  const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 };
@@ -72,7 +73,7 @@ export const generateSmartSchedule = async (
                     roleName: { type: Type.STRING },
                     isRemote: { type: Type.BOOLEAN }
                   },
-                  required: ["startTime", "endTime", "type"]
+                  required: ["startTime", "endTime", "type", "roleId", "roleName"]
                 }
               }
             },
@@ -91,7 +92,9 @@ export const generateSmartSchedule = async (
         // Prioritize ID match, then Name match, then Default
         let matchedRole = roles.find(r => r.id === s.roleId);
         if (!matchedRole && s.roleName) {
-            matchedRole = roles.find(r => r.title.toLowerCase() === s.roleName.toLowerCase());
+            matchedRole = roles.find(r => r.title.toLowerCase().trim() === s.roleName.toLowerCase().trim() ||
+                                          s.roleName.toLowerCase().includes(r.title.toLowerCase().trim()) ||
+                                          r.title.toLowerCase().includes(s.roleName.toLowerCase().trim()));
         }
         if (!matchedRole) matchedRole = roles[0];
         

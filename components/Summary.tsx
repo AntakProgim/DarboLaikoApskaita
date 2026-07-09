@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { DaySchedule, WorkConfig } from '../types';
 import { calculateDayNetMinutes, calculateDayRemoteMinutes, calculateSlotMinutes } from '../utils/timeHelper';
-import { exportToCSV } from '../utils/exportHelper';
+import { exportToTXT } from '../utils/exportHelper';
 import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Table, FileText } from 'lucide-react';
 
 interface SummaryProps {
@@ -74,76 +74,6 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
       onConfigUpdate({ ...config, roles: updatedRoles });
   };
 
-  const handleExport = () => {
-    let content = `DARBO LAIKO GRAFIKAS\n`;
-    content += `========================================\n`;
-    content += `Darbuotojas: ${config.fullName}\n`;
-    content += `Sugeneruota: ${new Date().toLocaleDateString('lt-LT')}\n`;
-    content += `----------------------------------------\n\n`;
-    
-    // Weekly Summary Breakdown
-    content += `SAVAITĖS SUVESTINĖ:\n`;
-    config.roles.forEach(role => {
-        const targetMin = role.hours * 60 + role.minutes;
-        const actualMin = actualRoleMinutes[role.id] || 0;
-        content += `- ${role.title}: ${formatHM(actualMin)} (Tikslas: ${formatHM(targetMin)})\n`;
-    });
-    
-    content += `\n`;
-    content += `Bendra savaitės trukmė: ${formatHM(mainTargetMinutes)}\n`;
-    content += `Faktinis darbo laikas: ${formatHM(totalMinutes)}\n`;
-    content += `Faktinis nuotolinis laikas: ${formatHM(totalRemoteScheduledMinutes)}\n`;
-    if (totalBreakMinutes > 0) {
-        content += `Pietų pertraukos (viso): ${formatHM(totalBreakMinutes)}\n`;
-    }
-    content += `========================================\n\n`;
-
-    schedule.forEach(day => {
-      const net = calculateDayNetMinutes(day.slots);
-      content += `----------------------------------------\n`;
-      content += `${day.dayName.toUpperCase()} (${formatHM(net)})\n`;
-      content += `----------------------------------------\n`;
-      
-      const dailyStats: Record<string, number> = {};
-      
-      day.slots.forEach(slot => {
-          const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
-          if (slot.type === 'break') {
-              content += `  ${slot.startTime} - ${slot.endTime} | PERTRAUKA (${dur} min)\n`;
-          } else {
-              const role = config.roles.find(r => r.id === slot.roleId);
-              const roleTitle = role ? role.title : 'Darbas';
-              const loc = slot.isRemote ? 'NUOTOLINIU' : 'BIURE';
-              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} (${loc}) | ${formatHM(dur)}\n`;
-              
-              // Accumulate daily stats
-              dailyStats[slot.roleId] = (dailyStats[slot.roleId] || 0) + dur;
-          }
-      });
-
-      // Daily breakdown summary
-      const workedRoles = Object.keys(dailyStats);
-      if (workedRoles.length > 0) {
-          content += `\n  Dienos suvestinė:\n`;
-          config.roles.forEach(role => {
-              if (dailyStats[role.id]) {
-                  content += `  - ${role.title}: ${formatHM(dailyStats[role.id])}\n`;
-              }
-          });
-      }
-
-      content += `\n`;
-    });
-
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${config.fullName.replace(/\s+/g, '_')}_Grafikas.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mb-8">
       {/* Header Info */}
@@ -156,20 +86,12 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
         </div>
         <div className="flex gap-2">
             <button
-            onClick={handleExport}
-            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"
-            title="Atsisiųsti .txt"
-            >
-            <FileText size={16} />
-            <span className="hidden sm:inline">TXT</span>
-            </button>
-            <button
-            onClick={() => exportToCSV(schedule, config)}
+            onClick={() => exportToTXT(schedule, config)}
             className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"
-            title="Atsisiųsti .csv"
+            title="Atsisiųsti .txt grafiko kopiją"
             >
-            <Table size={16} />
-            <span className="hidden sm:inline">CSV</span>
+            <Download size={16} />
+            <span className="hidden sm:inline">Atsisiųsti TXT</span>
             </button>
         </div>
       </div>
