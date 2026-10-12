@@ -1,9 +1,16 @@
-
 import { DaySchedule, WorkConfig } from '../types';
-import { calculateSlotMinutes, calculateDayRemoteMinutes, calculateDayNetMinutes } from './timeHelper';
+import { calculateSlotMinutes, calculateDayRemoteMinutes, calculateDayNetMinutes, getDayWorkDetails } from './timeHelper';
 
 export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
-  const totalMinutes = schedule.reduce((acc, day) => acc + calculateDayNetMinutes(day.slots), 0);
+  const totalInternalMinutes = schedule.reduce((acc, day) => acc + calculateDayNetMinutes(day.slots.filter(s => s.type === 'work')), 0);
+  const totalExternalMinutes = schedule.reduce((acc, day) => {
+    return acc + day.slots.reduce((dTotal, s) => {
+      if (s.type === 'external' || s.isExternal) {
+        return dTotal + calculateSlotMinutes(s.startTime, s.endTime);
+      }
+      return dTotal;
+    }, 0);
+  }, 0);
   
   const totalBreakMinutes = schedule.reduce((total, day) => {
       return total + day.slots.reduce((dayTotal, slot) => {
@@ -38,7 +45,12 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
 
   let content = `DARBO LAIKO GRAFIKAS\n`;
   content += `========================================\n`;
-  content += `Darbuotojas: ${config.fullName}\n`;
+  content += `Darbuotojas: ${config.fullName || 'Nenurodyta'}\n`;
+  if (config.isTeacher) {
+    content += `Darbo specifika: Pedagoginis darbas (Mokytojas)\n`;
+    content += `Pedagoginio darbo dienos norma: maks. 10 val. 18 min. (pietų laikas neįskaičiuojamas)\n`;
+  }
+  content += `Maksimali bendra darbo dienos trukmė: 12 val. (pietų laikas neįskaičiuojamas)\n`;
   content += `Sugeneruota: ${new Date().toLocaleDateString('lt-LT')}\n`;
   content += `----------------------------------------\n\n`;
   
@@ -51,18 +63,26 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
   });
   
   content += `\n`;
-  content += `Bendra savaitės trukmė: ${formatHM(mainTargetMinutes)}\n`;
-  content += `Faktinis darbo laikas: ${formatHM(totalMinutes)}\n`;
+  content += `Pagrindinė darbovietė (faktas): ${formatHM(totalInternalMinutes)} (Tikslas: ${formatHM(mainTargetMinutes)})\n`;
+  if (totalExternalMinutes > 0) {
+    content += `Kitos darbovietės (faktas): ${formatHM(totalExternalMinutes)}\n`;
+    content += `Bendra visų darboviečių trukmė: ${formatHM(totalInternalMinutes + totalExternalMinutes)}\n`;
+  }
   content += `Faktinis nuotolinis laikas: ${formatHM(totalRemoteScheduledMinutes)}\n`;
   if (totalBreakMinutes > 0) {
-      content += `Pietų pertraukos (viso): ${formatHM(totalBreakMinutes)}\n`;
+      content += `Pietų pertraukos (viso, neįskaitoma į darbo laiką): ${formatHM(totalBreakMinutes)}\n`;
   }
   content += `========================================\n\n`;
 
   schedule.forEach(day => {
-    const net = calculateDayNetMinutes(day.slots);
+    const details = getDayWorkDetails(day.slots, config.roles);
     content += `----------------------------------------\n`;
-    content += `${day.dayName.toUpperCase()} (${formatHM(net)})\n`;
+    content += `${day.dayName.toUpperCase()}\n`;
+    content += `  Darbo laikas pagrindinėje: ${formatHM(details.internalTotal)}\n`;
+    if (details.externalMinutes > 0) {
+      content += `  Darbo laikas kitose darbovietėse: ${formatHM(details.externalMinutes)}\n`;
+      content += `  Bendra dienos darbo trukmė: ${formatHM(details.grandTotal)}\n`;
+    }
     content += `----------------------------------------\n`;
     
     const dailyStats: Record<string, number> = {};
@@ -73,14 +93,21 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
       day.slots.forEach(slot => {
           const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
           if (slot.type === 'break') {
-              content += `  ${slot.startTime} - ${slot.endTime} | PERTRAUKA (${dur} min)\n`;
+              content += `  ${slot.startTime} - ${slot.endTime} | PIETŲ PERTRAUKA (${dur} min) [neįskaitoma į darbo laiką]\n`;
+          } else if (slot.type === 'external' || slot.isExternal) {
+              const place = slot.workplaceName || 'Kita darbovietė';
+              content += `  ${slot.startTime} - ${slot.endTime} | KITA DARBOVIETĖ: ${place} | ${formatHM(dur)}\n`;
           } else {
               const role = config.roles.find(r => r.id === slot.roleId);
               const roleTitle = role ? role.title : 'Nenurodyta';
-              const loc = slot.isRemote ? 'NUOTOLINIU' : 'BIURE';
-              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} (${loc}) | ${formatHM(dur)}\n`;
+              const loc = slot.isRemote ? 'NUOTOLINIU' : 'KONTAKTINIU / MOKYKLOJE';
+              const cat = slot.workCategory === 'lesson' 
+                ? `[PAMOKA #${slot.lessonNumber || ''}]` 
+                : slot.workCategory === 'flexible' 
+                  ? '[LANKSČIOS / NEKONTAKTINĖS]' 
+                  : '';
+              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} ${cat} (${loc}) | ${formatHM(dur)}\n`;
               
-              // Accumulate daily stats
               dailyStats[slot.roleId] = (dailyStats[slot.roleId] || 0) + dur;
           }
       });
@@ -89,7 +116,7 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
     // Daily breakdown summary
     const workedRoles = Object.keys(dailyStats);
     if (workedRoles.length > 0) {
-        content += `\n  Dienos suvestinė:\n`;
+        content += `\n  Dienos pareigų suvestinė:\n`;
         config.roles.forEach(role => {
             if (dailyStats[role.id]) {
                 content += `  - ${role.title}: ${formatHM(dailyStats[role.id])}\n`;

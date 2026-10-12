@@ -1,11 +1,9 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { DaySchedule, JobRole, DaySlot } from "../types";
-import { timeToMinutes, minutesToTime, roundToNearest5 } from "../utils/timeHelper";
+import { DaySchedule, JobRole, DaySlot, ExternalWorkplace } from "../types";
+import { timeToMinutes, minutesToTime, roundToNearest5, STANDARD_LESSON_BELLS, sortSlots } from "../utils/timeHelper";
 
 const getAiClient = () => {
-  // Vite exposes environment variables via import.meta.env
-  const apiKey = import.meta.env.VITE_API_KEY;
+  const apiKey = (import.meta as any).env?.VITE_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 };
@@ -23,7 +21,12 @@ export const generateSmartSchedule = async (
   roles: JobRole[],
   totalWeeklyMinutes: number,
   startTime: string = "08:00",
-  lunchDuration: number = 30
+  lunchDuration: number = 30,
+  lunchStartTime: string = "12:00",
+  lunchEndTime: string = "12:30",
+  hasLunch: boolean = true,
+  isTeacher: boolean = false,
+  otherWorkplaces: ExternalWorkplace[] = []
 ): Promise<DaySchedule[]> => {
   const ai = getAiClient();
   const targetHours = totalWeeklyMinutes / 60;
@@ -33,11 +36,23 @@ export const generateSmartSchedule = async (
     .join(', ');
     
   if (!ai) {
-    console.warn("API Key not found, using fallback.");
-    return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration);
+    console.warn("API Key not found, using fallback generator.");
+    return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration, lunchStartTime, lunchEndTime, hasLunch, isTeacher);
   }
 
   try {
+    const lunchRule = hasLunch && lunchDuration > 0
+      ? `3. When daily work is more than 4 hours, schedule a lunch 'break' slot strictly from ${lunchStartTime} to ${lunchEndTime} (or ${lunchDuration} minutes). Lunch break is NOT counted towards working hours.`
+      : `3. Do NOT include any lunch or break slots.`;
+
+    const teacherRule = isTeacher
+      ? `8. TEACHER / PEDAGOGICAL WORK RULES:
+      - The user is a school teacher.
+      - First, schedule contact lesson periods during standard school hours (e.g. 08:00-08:45, 08:55-09:40, 09:50-10:35, 10:55-11:40, 12:00-12:45, 12:55-13:40). Set workCategory to 'lesson' and assign appropriate lesson numbers.
+      - Next, allocate flexible non-contact hours (pasiruošimas, metodinė veikla) strictly outside lesson hours (e.g. after lessons, e.g. 13:40-16:00). Set workCategory to 'flexible'.
+      - Daily pedagogical work must NEVER exceed 10 hours 18 minutes (618 minutes), and total daily work must never exceed 12 hours.`
+      : ``;
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `Create a weekly work schedule (Monday to Friday) based on these roles: [${rolesDescription}].
@@ -47,11 +62,12 @@ export const generateSmartSchedule = async (
       Rules:
       1. Return a list of 5 days (Monday - Friday).
       2. Start the work day at ${startTime} (unless logic dictates otherwise).
-      3. If the total work duration in a day > 4 hours and lunchDuration > 0, insert a 'break' slot of exactly ${lunchDuration} minutes in the middle (usually after 4 hours).
+      ${lunchRule}
       4. Distribute the roles strictly according to their assigned duration.
       5. Do NOT count break time towards the total working hours.
       6. By default, work slots are NOT remote (isRemote: false).
       7. Use the exact 'roleId' provided in the description for each slot.
+      ${teacherRule}
       `,
       config: {
         responseMimeType: "application/json",
@@ -68,10 +84,12 @@ export const generateSmartSchedule = async (
                   properties: {
                     startTime: { type: Type.STRING },
                     endTime: { type: Type.STRING },
-                    type: { type: Type.STRING, enum: ["work", "break"] },
+                    type: { type: Type.STRING, enum: ["work", "break", "external"] },
                     roleId: { type: Type.STRING },
                     roleName: { type: Type.STRING },
-                    isRemote: { type: Type.BOOLEAN }
+                    isRemote: { type: Type.BOOLEAN },
+                    workCategory: { type: Type.STRING, enum: ["lesson", "flexible", "general"] },
+                    lessonNumber: { type: Type.INTEGER }
                   },
                   required: ["startTime", "endTime", "type", "roleId", "roleName"]
                 }
@@ -86,10 +104,8 @@ export const generateSmartSchedule = async (
     const rawData = JSON.parse(response.text || "[]");
     const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
     
-    // Map raw response to our Typed structure
     return rawData.map((item: any, index: number) => {
       const slots: DaySlot[] = (item.slots || []).map((s: any, sIdx: number) => {
-        // Prioritize ID match, then Name match, then Default
         let matchedRole = roles.find(r => r.id === s.roleId);
         if (!matchedRole && s.roleName) {
             matchedRole = roles.find(r => r.title.toLowerCase().trim() === s.roleName.toLowerCase().trim() ||
@@ -100,11 +116,13 @@ export const generateSmartSchedule = async (
         
         return {
           id: `slot-${index}-${sIdx}`,
-          startTime: roundToNearest5(s.startTime), // Ensure time is clean
-          endTime: roundToNearest5(s.endTime),     // Ensure time is clean
-          type: s.type === 'break' ? 'break' : 'work',
+          startTime: roundToNearest5(s.startTime),
+          endTime: roundToNearest5(s.endTime),
+          type: s.type === 'break' ? 'break' : s.type === 'external' ? 'external' : 'work',
           roleId: matchedRole ? matchedRole.id : "",
-          isRemote: !!s.isRemote
+          isRemote: !!s.isRemote,
+          workCategory: s.workCategory || (isTeacher ? 'lesson' : 'general'),
+          lessonNumber: s.lessonNumber
         };
       });
 
@@ -118,7 +136,7 @@ export const generateSmartSchedule = async (
 
   } catch (error) {
     console.error("Gemini generation failed:", error);
-    return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration);
+    return generateSimpleSchedule(roles, totalWeeklyMinutes, startTime, lunchDuration, lunchStartTime, lunchEndTime, hasLunch, isTeacher);
   }
 };
 
@@ -126,13 +144,92 @@ const generateSimpleSchedule = (
     roles: JobRole[], 
     totalWeeklyMinutes: number, 
     startTime: string,
-    lunchDuration: number
+    lunchDuration: number,
+    lunchStartTime: string = "12:00",
+    lunchEndTime: string = "12:30",
+    hasLunch: boolean = true,
+    isTeacher: boolean = false
 ): DaySchedule[] => {
-  const dailyMinutesTarget = totalWeeklyMinutes / 5; // Average min per day
+  const dailyMinutesTarget = totalWeeklyMinutes / 5;
   const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
   const startMin = timeToMinutes(startTime);
+  const targetLunchStartMin = timeToMinutes(lunchStartTime);
+  let targetLunchEndMin = timeToMinutes(lunchEndTime);
+  if (targetLunchEndMin <= targetLunchStartMin) {
+    targetLunchEndMin = targetLunchStartMin + (lunchDuration || 30);
+  }
+  const effectiveLunchDuration = targetLunchEndMin - targetLunchStartMin;
 
-  // Create a queue of minutes per role
+  // For teachers: first assign contact lessons, then flexible non-contact hours outside lessons
+  if (isTeacher) {
+    // Total contact minutes vs flexible minutes
+    // Usually a teacher has 15-25 lesson hours/week (approx 3-5 lessons per day)
+    const lessonsPerDay = Math.min(6, Math.max(3, Math.round((dailyMinutesTarget * 0.6) / 45)));
+
+    return days.map((day, dayIndex) => {
+      const slots: DaySlot[] = [];
+      let dayWorkMinutes = 0;
+      const primaryRoleId = roles[0]?.id || '1';
+
+      // 1. First add lessons (Kontaktinės valandos)
+      for (let l = 0; l < lessonsPerDay && l < STANDARD_LESSON_BELLS.length; l++) {
+        const bell = STANDARD_LESSON_BELLS[l];
+        // If lunch falls around 4-5th lesson
+        if (hasLunch && lunchDuration > 0 && l === 4) {
+          slots.push({
+            id: `slot-${dayIndex}-br`,
+            startTime: lunchStartTime,
+            endTime: lunchEndTime,
+            type: 'break',
+            roleId: '',
+            isRemote: false
+          });
+        }
+
+        slots.push({
+          id: `slot-${dayIndex}-lesson-${l + 1}`,
+          startTime: bell.startTime,
+          endTime: bell.endTime,
+          type: 'work',
+          roleId: primaryRoleId,
+          isRemote: false,
+          workCategory: 'lesson',
+          lessonNumber: l + 1
+        });
+        dayWorkMinutes += 45;
+      }
+
+      // 2. Add remaining flexible non-contact hours (pasiruošimas, metodinė veikla) strictly OUTSIDE lesson times
+      const remainingFlexible = Math.max(0, dailyMinutesTarget - dayWorkMinutes);
+      if (remainingFlexible > 0) {
+        // Last lesson end time
+        const lastLesson = slots.filter(s => s.type === 'work')[slots.filter(s => s.type === 'work').length - 1];
+        let flexStart = lastLesson ? lastLesson.endTime : "14:00";
+        // Start 10 min after last lesson or immediately
+        const flexStartMin = timeToMinutes(flexStart) + 10;
+        const flexEndMin = flexStartMin + remainingFlexible;
+
+        slots.push({
+          id: `slot-${dayIndex}-flex`,
+          startTime: minutesToTime(flexStartMin),
+          endTime: minutesToTime(flexEndMin),
+          type: 'work',
+          roleId: roles.length > 1 ? roles[1].id : primaryRoleId,
+          isRemote: false,
+          workCategory: 'flexible'
+        });
+      }
+
+      return {
+        id: `day-${dayIndex}`,
+        dayName: day,
+        dateOffset: dayIndex,
+        slots: sortSlots(slots)
+      };
+    });
+  }
+
+  // Standard non-teacher schedule generator
   let roleQueue = roles.map(r => ({
       id: r.id,
       remaining: (r.hours * 60) + r.minutes
@@ -141,36 +238,41 @@ const generateSimpleSchedule = (
   return days.map((day, dayIndex) => {
     const slots: DaySlot[] = [];
     let currentClock = startMin;
-    
-    // We try to fill this day up to 'dailyMinutesTarget', but logic handles if roles run out
     let dayWorkMinutes = 0;
     let hasBreak = false;
+    const shouldHaveLunch = hasLunch && lunchDuration > 0 && dailyMinutesTarget >= 180;
 
-    // While we haven't hit the day limit and there are roles left
     while (dayWorkMinutes < dailyMinutesTarget) {
-        // Find first role with minutes remaining
-        const activeRoleIndex = roleQueue.findIndex(r => r.remaining > 0);
-        if (activeRoleIndex === -1) break; // All work done for the week
-
-        const activeRole = roleQueue[activeRoleIndex];
-        
-        // Determine chunk size
-        // Max chunk before break is usually 4 hours (240m)
-        // Max remaining for day
-        const remainingForDay = dailyMinutesTarget - dayWorkMinutes;
-        
-        // If we haven't had a break and we are reaching > 4 hours, limit this chunk
-        let maxChunkSize = remainingForDay;
-        
-        if (!hasBreak && dayWorkMinutes < 240 && (dayWorkMinutes + maxChunkSize) > 240) {
-             // Cap at the break point
-             maxChunkSize = 240 - dayWorkMinutes;
+        if (shouldHaveLunch && !hasBreak && currentClock >= targetLunchStartMin) {
+            slots.push({
+                id: `slot-${dayIndex}-br`,
+                startTime: minutesToTime(currentClock),
+                endTime: minutesToTime(currentClock + effectiveLunchDuration),
+                type: 'break',
+                roleId: '',
+                isRemote: false
+            });
+            currentClock += effectiveLunchDuration;
+            hasBreak = true;
         }
 
-        // Also limit by how much the role has left
-        const duration = Math.min(maxChunkSize, activeRole.remaining);
+        const activeRoleIndex = roleQueue.findIndex(r => r.remaining > 0);
+        if (activeRoleIndex === -1) break;
+
+        const activeRole = roleQueue[activeRoleIndex];
+        const remainingForDay = dailyMinutesTarget - dayWorkMinutes;
         
-        // Create WORK slot
+        let maxChunkSize = remainingForDay;
+
+        if (shouldHaveLunch && !hasBreak && currentClock < targetLunchStartMin) {
+          const minutesUntilLunch = targetLunchStartMin - currentClock;
+          if (minutesUntilLunch > 0 && maxChunkSize > minutesUntilLunch) {
+            maxChunkSize = minutesUntilLunch;
+          }
+        }
+
+        const duration = Math.min(maxChunkSize, activeRole.remaining);
+
         if (duration > 0) {
             slots.push({
                 id: `slot-${dayIndex}-${slots.length}`,
@@ -178,26 +280,27 @@ const generateSimpleSchedule = (
                 endTime: minutesToTime(currentClock + duration),
                 type: 'work',
                 roleId: activeRole.id,
-                isRemote: false
+                isRemote: false,
+                workCategory: 'general'
             });
 
             currentClock += duration;
             dayWorkMinutes += duration;
             activeRole.remaining -= duration;
+        } else {
+            break;
         }
 
-        // Insert BREAK if needed
-        // If we just hit 240 minutes (4 hours) or exceeded it slightly, and haven't had break
-        if (lunchDuration > 0 && !hasBreak && dayWorkMinutes >= 240 && dayWorkMinutes < dailyMinutesTarget) {
+        if (shouldHaveLunch && !hasBreak && currentClock >= targetLunchStartMin) {
             slots.push({
                 id: `slot-${dayIndex}-br`,
                 startTime: minutesToTime(currentClock),
-                endTime: minutesToTime(currentClock + lunchDuration),
+                endTime: minutesToTime(currentClock + effectiveLunchDuration),
                 type: 'break',
                 roleId: '',
                 isRemote: false
             });
-            currentClock += lunchDuration;
+            currentClock += effectiveLunchDuration;
             hasBreak = true;
         }
     }
@@ -206,7 +309,7 @@ const generateSimpleSchedule = (
       id: `day-${dayIndex}`,
       dayName: day,
       dateOffset: dayIndex,
-      slots
+      slots: sortSlots(slots)
     };
   });
 };
