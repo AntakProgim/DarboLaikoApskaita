@@ -162,8 +162,8 @@ export const generateSmartSchedule = async (
 const generateSimpleSchedule = (
     roles: JobRole[], 
     totalWeeklyMinutes: number, 
-    startTime: string,
-    lunchDuration: number,
+    startTime: string = "08:00",
+    lunchDuration: number = 30,
     lunchStartTime: string = "12:00",
     lunchEndTime: string = "12:30",
     hasLunch: boolean = true,
@@ -172,13 +172,12 @@ const generateSimpleSchedule = (
     shortFriday: boolean = true
 ): DaySchedule[] => {
   const days = ["Pirmadienis", "Antradienis", "Trečiadienis", "Ketvirtadienis", "Penktadienis"];
-  const startMin = timeToMinutes(startTime);
-  const targetLunchStartMin = timeToMinutes(lunchStartTime);
-  let targetLunchEndMin = timeToMinutes(lunchEndTime);
+  const startMin = timeToMinutes(startTime || "08:00");
+  const targetLunchStartMin = timeToMinutes(lunchStartTime || "12:00");
+  let targetLunchEndMin = timeToMinutes(lunchEndTime || "12:30");
   if (targetLunchEndMin <= targetLunchStartMin) {
     targetLunchEndMin = targetLunchStartMin + (lunchDuration || 30);
   }
-  const effectiveLunchDuration = targetLunchEndMin - targetLunchStartMin;
 
   // Calculate day-specific targets (e.g. 8h 15m Mon-Thu, 7h 00m Fri for 40h; 7h 27m Mon-Thu, 6h 12m Fri for 36h)
   const dailyTargets = calculateDailyTargets(totalWeeklyMinutes, shortFriday);
@@ -192,194 +191,272 @@ const generateSimpleSchedule = (
 
   const primaryRole = sortedRoles[0];
   const primaryRoleId = primaryRole ? primaryRole.id : '1';
-  const primaryRoleTotalMin = primaryRole ? (primaryRole.hours * 60 + primaryRole.minutes) : totalWeeklyMinutes;
 
-  // If teacher or assistance specialist mode
+  // 1. TEACHER / EDUCATIONAL SPECIALIST MODE
   if (isTeacher) {
-    const hasCustomLessons = weeklyLessons && Object.values(weeklyLessons).some(l => l && l.length > 0);
-    
-    // Calculate total contact lesson minutes across the week (1 pamoka = 60 min. darbo laiko normos)
-    let totalScheduledLessonMinutes = 0;
+    // Respect explicit weeklyLessons even if cleared (all empty arrays)
+    // Only fallback to default 1-4 lessons if weeklyLessons was completely undefined
+    const isLessonsExplicitlyProvided = weeklyLessons !== undefined;
     const dayLessonMap: Record<number, number[]> = {};
 
     days.forEach((_, dayIndex) => {
-      let dayLessonNumbers: number[] = [];
-      if (hasCustomLessons && weeklyLessons) {
-        dayLessonNumbers = weeklyLessons[dayIndex] || [];
+      if (isLessonsExplicitlyProvided && weeklyLessons) {
+        dayLessonMap[dayIndex] = [...(weeklyLessons[dayIndex] || [])].sort((a, b) => a - b);
       } else {
-        // Default 4 lessons Mon-Thu, 3 lessons Fri
-        dayLessonNumbers = dayIndex === 4 ? [1, 2, 3] : [1, 2, 3, 4];
+        // Default 1-4 lessons Mon-Thu, 1-3 lessons Fri
+        dayLessonMap[dayIndex] = dayIndex === 4 ? [1, 2, 3] : [1, 2, 3, 4];
       }
-      dayLessonMap[dayIndex] = [...dayLessonNumbers].sort((a, b) => a - b);
-      totalScheduledLessonMinutes += dayLessonNumbers.length * 60;
     });
 
-    // Flexible / non-contact minutes for primary role
-    const totalAvailableFlexMin = Math.max(0, primaryRoleTotalMin - totalScheduledLessonMinutes);
-
-    // Calculate secondary roles minutes scheduled per day
-    const secRolesPerDay: Record<number, { customSlots: DaySlot[]; customMin: number; autoMin: number }> = {};
-    days.forEach((_, dayIndex) => {
-      secRolesPerDay[dayIndex] = { customSlots: [], customMin: 0, autoMin: 0 };
-    });
+    // Secondary roles allocation by days
+    const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number }[]> = {
+      0: [], 1: [], 2: [], 3: [], 4: []
+    };
 
     sortedRoles.slice(1).forEach(secRole => {
+      const secTotalMin = (secRole.hours * 60) + secRole.minutes;
+      if (secTotalMin <= 0) return;
+
       const pref = secRole.schedulePreference;
-      const secRoleTotalMin = (secRole.hours * 60) + secRole.minutes;
+      let targetDays: number[] = [];
 
-      if (pref?.mode === 'custom_times' && pref.days && pref.startTime && pref.endTime) {
-        const slotMin = calculateSlotMinutes(pref.startTime, pref.endTime);
-        pref.days.forEach(d => {
-          if (secRolesPerDay[d]) {
-            secRolesPerDay[d].customSlots.push({
-              id: `slot-${d}-sec-${secRole.id}`,
-              startTime: pref.startTime!,
-              endTime: pref.endTime!,
-              type: 'work',
-              roleId: secRole.id,
-              isRemote: false,
-              workCategory: 'general'
-            });
-            secRolesPerDay[d].customMin += slotMin;
-          }
-        });
-      } else if (!pref || pref.mode === 'auto_after_lessons') {
-        const dailyMin = Math.round(secRoleTotalMin / 5);
-        days.forEach((_, d) => {
-          if (secRolesPerDay[d]) {
-            secRolesPerDay[d].autoMin += dailyMin;
-          }
-        });
+      if (pref?.days && pref.days.length > 0) {
+        targetDays = pref.days;
+      } else if (secTotalMin <= 240) {
+        // If small duty and no days chosen, default to Wednesday (day 2)
+        targetDays = [2];
+      } else {
+        targetDays = [0, 1, 2, 3, 4];
       }
-    });
 
-    // Desired flexible minutes per day to reach dailyTargets[dayIndex]
-    const desiredFlexPerDay: number[] = days.map((_, dayIndex) => {
-      const dayTarget = dailyTargets[dayIndex];
-      const lessonsAccounted = (dayLessonMap[dayIndex] || []).length * 60;
-      const secTotal = secRolesPerDay[dayIndex].customMin + secRolesPerDay[dayIndex].autoMin;
-      return Math.max(0, dayTarget - lessonsAccounted - secTotal);
-    });
+      const minPerDay = Math.round(secTotalMin / targetDays.length);
+      let allocated = 0;
 
-    const sumDesiredFlex = desiredFlexPerDay.reduce((a, b) => a + b, 0);
-
-    // Allocate flexible minutes to each day to fill target
-    const allocatedFlexPerDay: number[] = [0, 0, 0, 0, 0];
-    let allocatedTotal = 0;
-
-    if (sumDesiredFlex > 0 && totalAvailableFlexMin > 0) {
-      for (let d = 0; d < 5; d++) {
-        if (d === 4) {
-          allocatedFlexPerDay[d] = Math.max(0, totalAvailableFlexMin - allocatedTotal);
-        } else {
-          const ratio = desiredFlexPerDay[d] / sumDesiredFlex;
-          const share = Math.round(ratio * totalAvailableFlexMin);
-          const allotted = Math.min(totalAvailableFlexMin - allocatedTotal, share);
-          allocatedFlexPerDay[d] = allotted;
-          allocatedTotal += allotted;
-        }
-      }
-    } else if (totalAvailableFlexMin > 0) {
-      const perDay = Math.floor(totalAvailableFlexMin / 5);
-      for (let d = 0; d < 5; d++) {
-        allocatedFlexPerDay[d] = d === 4 ? (totalAvailableFlexMin - perDay * 4) : perDay;
-      }
-    }
-
-    // Build the 5-day schedule
-    return days.map((day, dayIndex) => {
-      const slots: DaySlot[] = [];
-      const dayLessonNumbers = dayLessonMap[dayIndex] || [];
-
-      // 1. Contact lessons (bell is 45 min, but counts as 1 hour in work accounting)
-      dayLessonNumbers.forEach(num => {
-        const bell = STANDARD_LESSON_BELLS.find(b => b.number === num);
-        if (bell) {
-          slots.push({
-            id: `slot-${dayIndex}-lesson-${num}`,
-            startTime: bell.startTime,
-            endTime: bell.endTime,
-            type: 'work',
-            roleId: primaryRoleId,
-            isRemote: false,
-            workCategory: 'lesson',
-            lessonNumber: num
+      targetDays.forEach((d, idx) => {
+        if (d >= 0 && d <= 4) {
+          const toAdd = idx === targetDays.length - 1 ? (secTotalMin - allocated) : minPerDay;
+          allocated += toAdd;
+          secRolesPerDay[d].push({
+            roleId: secRole.id,
+            title: secRole.title,
+            minutes: toAdd
           });
         }
       });
+    });
 
-      // 2. Lunch break if configured
-      if (hasLunch && lunchDuration > 0 && dayLessonNumbers.length >= 4) {
+    return days.map((day, dayIndex) => {
+      const slots: DaySlot[] = [];
+      const dayTarget = dailyTargets[dayIndex];
+      const lessonNumbers = dayLessonMap[dayIndex] || [];
+      const lessonAccountedMin = lessonNumbers.length * 60; // 1 pamoka = 60 min. normos
+      
+      const secRolesForDay = secRolesPerDay[dayIndex] || [];
+      const secMinForDay = secRolesForDay.reduce((sum, r) => sum + r.minutes, 0);
+
+      // Remaining minutes for this day to be fulfilled by primary role flexible hours
+      const flexMinForDay = Math.max(0, dayTarget - lessonAccountedMin - secMinForDay);
+
+      // CASE A: Day has contact lessons
+      if (lessonNumbers.length > 0) {
+        const firstLessonNum = lessonNumbers[0];
+        const firstBell = STANDARD_LESSON_BELLS.find(b => b.number === firstLessonNum);
+        const firstBellStartMin = firstBell ? timeToMinutes(firstBell.startTime) : startMin;
+
+        let remainingFlex = flexMinForDay;
+
+        // If the day starts before the first lesson (e.g. 08:00 vs lesson 2/3), fill morning with flex prep
+        if (firstBellStartMin > startMin && remainingFlex > 0) {
+          const morningGap = firstBellStartMin - startMin;
+          const morningFlex = Math.min(morningGap, remainingFlex);
+          slots.push({
+            id: `slot-${dayIndex}-flex-morn`,
+            startTime: minutesToTime(startMin),
+            endTime: minutesToTime(startMin + morningFlex),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+          remainingFlex -= morningFlex;
+        }
+
+        // Add contact lesson slots
+        lessonNumbers.forEach(num => {
+          const bell = STANDARD_LESSON_BELLS.find(b => b.number === num);
+          if (bell) {
+            slots.push({
+              id: `slot-${dayIndex}-lesson-${num}`,
+              startTime: bell.startTime,
+              endTime: bell.endTime,
+              type: 'work',
+              roleId: primaryRoleId,
+              isRemote: false,
+              workCategory: 'lesson',
+              lessonNumber: num
+            });
+          }
+        });
+
+        const lastLessonNum = lessonNumbers[lessonNumbers.length - 1];
+        const lastBell = STANDARD_LESSON_BELLS.find(b => b.number === lastLessonNum);
+        const lastLessonEndMin = lastBell ? timeToMinutes(lastBell.endTime) : 12 * 60;
+
+        // Determine lunch and afternoon schedule
+        let afternoonStartMin = lastLessonEndMin;
+
+        if (hasLunch && lunchDuration > 0 && dayTarget >= 240) {
+          // Place lunch break around targetLunchStartMin
+          let lunchStartM = targetLunchStartMin;
+          if (lastLessonEndMin > lunchStartM) {
+            lunchStartM = lastLessonEndMin + 10;
+          }
+          const lunchEndM = lunchStartM + (lunchDuration || 30);
+
+          slots.push({
+            id: `slot-${dayIndex}-br`,
+            startTime: minutesToTime(lunchStartM),
+            endTime: minutesToTime(lunchEndM),
+            type: 'break',
+            roleId: '',
+            isRemote: false
+          });
+
+          afternoonStartMin = lunchEndM;
+        }
+
+        // Place secondary roles on this day
+        let currentClock = afternoonStartMin;
+        secRolesForDay.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            slots.push({
+              id: `slot-${dayIndex}-sec-${sIdx}`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + sec.minutes),
+              type: 'work',
+              roleId: sec.roleId,
+              isRemote: false,
+              workCategory: 'general'
+            });
+            currentClock += sec.minutes;
+          }
+        });
+
+        // Place remaining flexible non-contact hours
+        if (remainingFlex > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-flex-aft`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + remainingFlex),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+        }
+
+        return {
+          id: `day-${dayIndex}`,
+          dayName: day,
+          dateOffset: dayIndex,
+          slots: sortSlots(slots)
+        };
+      }
+
+      // CASE B: Day has ZERO contact lessons (starts strictly at startTime = 08:00)
+      if (hasLunch && lunchDuration > 0 && dayTarget >= 240) {
+        // Morning work: starts at startTime (08:00) and runs to lunchStartTime (12:00) = 240 min
+        const morningDur = Math.min(targetLunchStartMin - startMin, dayTarget);
+        if (morningDur > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-morn`,
+            startTime: minutesToTime(startMin),
+            endTime: minutesToTime(startMin + morningDur),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+        }
+
+        // Lunch break
         slots.push({
           id: `slot-${dayIndex}-br`,
-          startTime: lunchStartTime,
-          endTime: lunchEndTime,
+          startTime: minutesToTime(targetLunchStartMin),
+          endTime: minutesToTime(targetLunchEndMin),
           type: 'break',
           roleId: '',
           isRemote: false
         });
-      }
 
-      // Next available start time
-      let nextAvailableStart = "14:00";
-      const workSlots = slots.filter(s => s.type === 'work');
-      if (workSlots.length > 0) {
-        const lastWork = workSlots[workSlots.length - 1];
-        nextAvailableStart = lastWork.endTime;
-      }
+        // Afternoon work
+        let currentClock = targetLunchEndMin;
+        let afternoonMinNeeded = Math.max(0, dayTarget - morningDur);
 
-      if (hasLunch && lunchDuration > 0) {
-        const lunchEndM = timeToMinutes(lunchEndTime);
-        if (timeToMinutes(nextAvailableStart) < lunchEndM && timeToMinutes(nextAvailableStart) >= timeToMinutes(lunchStartTime)) {
-          nextAvailableStart = lunchEndTime;
-        }
-      }
-
-      // 3. Flexible hours for primary role
-      const flexMin = allocatedFlexPerDay[dayIndex];
-      if (flexMin > 0) {
-        const flexStartMin = Math.max(timeToMinutes(nextAvailableStart) + 10, timeToMinutes(startTime));
-        const flexEndMin = flexStartMin + flexMin;
-
-        slots.push({
-          id: `slot-${dayIndex}-flex`,
-          startTime: minutesToTime(flexStartMin),
-          endTime: minutesToTime(flexEndMin),
-          type: 'work',
-          roleId: primaryRoleId,
-          isRemote: false,
-          workCategory: 'flexible'
-        });
-
-        nextAvailableStart = minutesToTime(flexEndMin);
-      }
-
-      // 4. Secondary duties
-      // Custom times slots
-      secRolesPerDay[dayIndex].customSlots.forEach(s => slots.push(s));
-
-      // Auto after lessons slots
-      sortedRoles.slice(1).forEach(secRole => {
-        const pref = secRole.schedulePreference;
-        if (!pref || pref.mode === 'auto_after_lessons') {
-          const secRoleTotalMin = (secRole.hours * 60) + secRole.minutes;
-          const dailyMin = Math.round(secRoleTotalMin / 5);
-          if (dailyMin > 0) {
-            const secStartMin = Math.max(timeToMinutes(nextAvailableStart) + 10, 14 * 60 + 40);
-            const secEndMin = secStartMin + dailyMin;
+        // Schedule secondary roles first if any
+        secRolesForDay.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            const chunk = Math.min(sec.minutes, afternoonMinNeeded);
             slots.push({
-              id: `slot-${dayIndex}-sec-${secRole.id}`,
-              startTime: minutesToTime(secStartMin),
-              endTime: minutesToTime(secEndMin),
+              id: `slot-${dayIndex}-sec-${sIdx}`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + chunk),
               type: 'work',
-              roleId: secRole.id,
+              roleId: sec.roleId,
               isRemote: false,
               workCategory: 'general'
             });
-            nextAvailableStart = minutesToTime(secEndMin);
+            currentClock += chunk;
+            afternoonMinNeeded = Math.max(0, afternoonMinNeeded - chunk);
           }
+        });
+
+        // Schedule remaining primary role hours
+        if (afternoonMinNeeded > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-aft`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + afternoonMinNeeded),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
         }
-      });
+      } else {
+        // No lunch break: continuous work starting at startTime (08:00)
+        let currentClock = startMin;
+        let dayRemaining = dayTarget;
+
+        secRolesForDay.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            const chunk = Math.min(sec.minutes, dayRemaining);
+            slots.push({
+              id: `slot-${dayIndex}-sec-${sIdx}`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + chunk),
+              type: 'work',
+              roleId: sec.roleId,
+              isRemote: false,
+              workCategory: 'general'
+            });
+            currentClock += chunk;
+            dayRemaining = Math.max(0, dayRemaining - chunk);
+          }
+        });
+
+        if (dayRemaining > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-work`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + dayRemaining),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+        }
+      }
 
       return {
         id: `day-${dayIndex}`,
@@ -390,40 +467,56 @@ const generateSimpleSchedule = (
     });
   }
 
-  // Standard non-teacher schedule generator
+  // 2. STANDARD NON-TEACHER SCHEDULE (strictly starts at startTime = 08:00, respects day targets)
   let roleQueue = sortedRoles.map(r => ({
-      id: r.id,
-      remaining: (r.hours * 60) + r.minutes
+    id: r.id,
+    remaining: (r.hours * 60) + r.minutes
   }));
 
   return days.map((day, dayIndex) => {
     const slots: DaySlot[] = [];
+    const dayTarget = dailyTargets[dayIndex];
     let currentClock = startMin;
     let dayWorkMinutes = 0;
     let hasBreak = false;
-    const dayTarget = dailyTargets[dayIndex];
-    const shouldHaveLunch = hasLunch && lunchDuration > 0 && dayTarget >= 180;
+    const shouldHaveLunch = hasLunch && lunchDuration > 0 && dayTarget >= 240;
 
     while (dayWorkMinutes < dayTarget) {
       if (shouldHaveLunch && !hasBreak && currentClock >= targetLunchStartMin) {
         slots.push({
           id: `slot-${dayIndex}-br`,
           startTime: minutesToTime(currentClock),
-          endTime: minutesToTime(currentClock + effectiveLunchDuration),
+          endTime: minutesToTime(targetLunchEndMin),
           type: 'break',
           roleId: '',
           isRemote: false
         });
-        currentClock += effectiveLunchDuration;
+        currentClock = targetLunchEndMin;
         hasBreak = true;
       }
 
       const activeRoleIndex = roleQueue.findIndex(r => r.remaining > 0);
-      if (activeRoleIndex === -1) break;
+      if (activeRoleIndex === -1) {
+        // If roles exhausted, fill remainder with primary role
+        const remainingForDay = dayTarget - dayWorkMinutes;
+        if (remainingForDay > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-${slots.length}`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + remainingForDay),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: 'general'
+          });
+          currentClock += remainingForDay;
+          dayWorkMinutes += remainingForDay;
+        }
+        break;
+      }
 
       const activeRole = roleQueue[activeRoleIndex];
       const remainingForDay = dayTarget - dayWorkMinutes;
-      
       let maxChunkSize = remainingForDay;
 
       if (shouldHaveLunch && !hasBreak && currentClock < targetLunchStartMin) {
@@ -452,19 +545,18 @@ const generateSimpleSchedule = (
       } else {
         break;
       }
+    }
 
-      if (shouldHaveLunch && !hasBreak && currentClock >= targetLunchStartMin) {
-        slots.push({
-          id: `slot-${dayIndex}-br`,
-          startTime: minutesToTime(currentClock),
-          endTime: minutesToTime(currentClock + effectiveLunchDuration),
-          type: 'break',
-          roleId: '',
-          isRemote: false
-        });
-        currentClock += effectiveLunchDuration;
-        hasBreak = true;
-      }
+    // Ensure lunch break was added if required and work passed lunch start
+    if (shouldHaveLunch && !hasBreak && slots.length > 0) {
+      slots.push({
+        id: `slot-${dayIndex}-br`,
+        startTime: minutesToTime(targetLunchStartMin),
+        endTime: minutesToTime(targetLunchEndMin),
+        type: 'break',
+        roleId: '',
+        isRemote: false
+      });
     }
 
     return {

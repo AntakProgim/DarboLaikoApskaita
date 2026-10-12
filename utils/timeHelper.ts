@@ -404,12 +404,13 @@ export const placeFlexibleHoursAfterLessons = (
   slots: DaySlot[],
   minutesToAdd: number,
   roleId: string,
-  isRemote: boolean = false
+  isRemote: boolean = false,
+  defaultStartTime: string = "08:00"
 ): DaySlot[] => {
   if (minutesToAdd <= 0) return slots;
   
   const sorted = sortSlots(slots);
-  let startTime = "14:40";
+  let startTime = defaultStartTime;
 
   // If there are existing slots, find the latest end time
   if (sorted.length > 0) {

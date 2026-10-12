@@ -161,12 +161,11 @@ const App: React.FC = () => {
 
   const handleRemoveRole = (id: string) => {
     if (config.roles.length > 1) {
-      if (window.confirm("Pašalinti pareigas?")) {
-        setConfig(prev => ({
-          ...prev,
-          roles: prev.roles.filter(r => r.id !== id)
-        }));
-      }
+      setConfig(prev => ({
+        ...prev,
+        roles: prev.roles.filter(r => r.id !== id)
+      }));
+      showToast('Pareigos pašalintos.');
     }
   };
 
@@ -442,7 +441,7 @@ const App: React.FC = () => {
       if (toAdd > 0) {
         return {
           ...day,
-          slots: placeFlexibleHoursAfterLessons(day.slots, toAdd, primaryRoleId)
+          slots: placeFlexibleHoursAfterLessons(day.slots, toAdd, primaryRoleId, false, config.defaultStartTime || '08:00')
         };
       }
       return day;
@@ -452,7 +451,7 @@ const App: React.FC = () => {
       const perDay = Math.ceil(remainingNeeded / 5);
       const finalSchedule = updatedSchedule.map(day => ({
         ...day,
-        slots: placeFlexibleHoursAfterLessons(day.slots, perDay, primaryRoleId)
+        slots: placeFlexibleHoursAfterLessons(day.slots, perDay, primaryRoleId, false, config.defaultStartTime || '08:00')
       }));
       setSchedule(finalSchedule);
     } else {
@@ -472,10 +471,14 @@ const App: React.FC = () => {
     return hasName && rolesValid && totalValid;
   }, [config.fullName, config.roles, mainScheduleMinutes]);
 
+  const handleClearEntireSchedule = () => {
+    setSchedule(prev => prev.map(day => ({ ...day, slots: [] })));
+    showToast('Grafikas išvalytas! Galite susidėlioti laikus rankiniu būdu.');
+  };
+
   const handleReset = () => {
-    if (window.confirm("Grįžus į redagavimą, dabartinis grafikas bus ištrintas. Tęsti?")) {
-      setHasGenerated(false);
-    }
+    setHasGenerated(false);
+    showToast('Grįžta į nustatymų redagavimą.');
   };
 
   return (
@@ -759,6 +762,70 @@ const App: React.FC = () => {
                         </div>
                       </div>
 
+                      {/* Workload presets for role */}
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[10px]">
+                        <span className="text-gray-400 font-medium">Greitas pasirinkimas:</span>
+                        {isPrimary ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 36, 0)}
+                              className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-semibold transition-colors"
+                              title="Pedagoginė norma: 36 val./sav. (7 val. 12 min. per dieną)"
+                            >
+                              ⚡ 36 val. (7,12 val./d.)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 40, 0)}
+                              className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 font-semibold transition-colors"
+                              title="Bendra norma: 40 val./sav. (8 val. 00 min. per dieną)"
+                            >
+                              ⚡ 40 val. (8,00 val./d.)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 24, 0)}
+                              className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                            >
+                              24 val.
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 18, 0)}
+                              className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                            >
+                              18 val. (0,5 etato)
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 3, 12)}
+                              className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 font-semibold transition-colors"
+                              title="3 val. 12 min. (0,1 pedagogo etato)"
+                            >
+                              ⚡ 3 val. 12 min.
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 4, 0)}
+                              className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                            >
+                              4 val.
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetRolePresetWorkload(role.id, 2, 0)}
+                              className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                            >
+                              2 val.
+                            </button>
+                          </>
+                        )}
+                      </div>
+
                       {(validation.time || validation.warning) && (
                         <div className={`text-[10px] flex items-center gap-1 mt-1 ${validation.time ? 'text-red-600' : 'text-amber-600'}`}>
                           <AlertCircle size={10} /> {validation.time || validation.warning}
@@ -822,10 +889,20 @@ const App: React.FC = () => {
 
                           {/* Custom Times Configuration: Days of Week + Time Range */}
                           {pref.mode === 'custom_times' && (
-                            <div className="bg-white p-2 rounded-md border border-indigo-200 space-y-2 animate-fade-in">
+                            <div className="bg-white p-2.5 rounded-md border border-indigo-200 space-y-2 animate-fade-in">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="space-y-1">
-                                  <span className="text-[10px] font-semibold text-gray-600 block">Savaitės dienos:</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-semibold text-gray-600 block">Savaitės dienos:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRolePreferenceChange(role.id, { days: [2] })}
+                                      className="text-[9px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200 font-medium"
+                                      title="Paskirti tik į trečiadienį"
+                                    >
+                                      Tik trečiadienį
+                                    </button>
+                                  </div>
                                   <div className="flex items-center gap-1">
                                     {WEEKDAY_BTNS.map(day => {
                                       const isDayChecked = (pref.days || []).includes(day.offset);
@@ -849,16 +926,32 @@ const App: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-1">
-                                  <span className="text-[10px] font-semibold text-gray-600 block">Darbo laikas:</span>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-semibold text-gray-600 block">Darbo laikas:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const dCount = (pref.days || []).length || 1;
+                                        const chunk = Math.round(roleTargetMin / dCount);
+                                        const startM = timeToMinutes(pref.startTime || '12:30');
+                                        const newEnd = minutesToTime(startM + chunk);
+                                        handleRolePreferenceChange(role.id, { endTime: newEnd });
+                                      }}
+                                      className="text-[9px] text-blue-600 hover:underline font-medium"
+                                      title="Automatiškai pritaikyti pabaigos laiką pagal pareigų normą"
+                                    >
+                                      Suderinti pabaigą ({formatDuration(roleTargetMin)})
+                                    </button>
+                                  </div>
                                   <div className="flex items-center gap-1">
                                     <TimeSelect 
-                                      value={pref.startTime || '13:00'}
+                                      value={pref.startTime || '12:30'}
                                       onChange={(val) => handleRolePreferenceChange(role.id, { startTime: val })}
                                       selectClassName="w-12 p-0.5 text-xs rounded border-gray-300 font-medium"
                                     />
                                     <span className="text-gray-400 font-bold">-</span>
                                     <TimeSelect 
-                                      value={pref.endTime || '15:00'}
+                                      value={pref.endTime || '15:42'}
                                       onChange={(val) => handleRolePreferenceChange(role.id, { endTime: val })}
                                       selectClassName="w-12 p-0.5 text-xs rounded border-gray-300 font-medium"
                                     />
@@ -891,9 +984,52 @@ const App: React.FC = () => {
                           )}
 
                           {pref.mode === 'auto_after_lessons' && (
-                            <p className="text-[11px] text-gray-600 italic">
-                              Sistema šių pareigų savaitės valandas tolygiai sudėlios po pamokų ir lanksčių valandų.
-                            </p>
+                            <div className="bg-white p-2.5 rounded-md border border-indigo-200 space-y-2 animate-fade-in">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-semibold text-gray-600 block">Kuriomis dienomis dirbama:</span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRolePreferenceChange(role.id, { days: [2] })}
+                                      className="text-[9px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200 font-medium"
+                                    >
+                                      Tik trečiadienį
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRolePreferenceChange(role.id, { days: [0, 1, 2, 3, 4] })}
+                                      className="text-[9px] bg-gray-50 text-gray-600 hover:bg-gray-100 px-1.5 py-0.2 rounded border border-gray-200 font-medium"
+                                    >
+                                      Visomis (I–V)
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {WEEKDAY_BTNS.map(day => {
+                                    const isDayChecked = (pref.days || []).includes(day.offset);
+                                    return (
+                                      <button
+                                        key={day.offset}
+                                        type="button"
+                                        onClick={() => handleTogglePreferenceDay(role.id, day.offset)}
+                                        className={`w-7 h-6 rounded text-xs font-bold transition-all flex items-center justify-center ${
+                                          isDayChecked 
+                                            ? 'bg-indigo-600 text-white shadow-2xs' 
+                                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                        }`}
+                                        title={`Paskirti į ${day.label}`}
+                                      >
+                                        {day.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-gray-600">
+                                Šios pareigos bus suplanuotos po pamokų tik pasirinktomis dienomis. Kitomis dienomis dirbama pagal įprastą ~8 val. ar 7,12 val. normą.
+                              </p>
+                            </div>
                           )}
 
                           {pref.mode === 'manual_in_schedule' && (
@@ -1159,6 +1295,15 @@ const App: React.FC = () => {
               </button>
 
               <button 
+                onClick={handleClearEntireSchedule}
+                className="text-xs flex items-center gap-1.5 text-gray-600 hover:text-red-600 bg-gray-50 hover:bg-red-50 px-3 py-1.5 rounded-lg border border-gray-200 transition-colors font-medium"
+                title="Išvalyti visus suplanuotus dienos laikus"
+              >
+                <Trash2 size={13}/> 
+                <span>Išvalyti grafiką</span>
+              </button>
+
+              <button 
                 onClick={() => exportToTXT(schedule, config)}
                 className="text-xs flex items-center gap-1 text-gray-600 hover:text-green-600 bg-gray-50 hover:bg-green-50 px-3 py-1.5 rounded border border-gray-200 transition-colors"
                 title="Atsisiųsti TXT"
@@ -1170,6 +1315,7 @@ const App: React.FC = () => {
               <button 
                 onClick={handleReset}
                 className="text-xs flex items-center gap-1 text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 px-3 py-1.5 rounded border border-gray-200 transition-colors"
+                title="Grįžti į nustatymus ir kurti naują grafiką"
               >
                 <RotateCcw size={14}/> 
                 <span className="hidden sm:inline">Naujas grafikas</span>

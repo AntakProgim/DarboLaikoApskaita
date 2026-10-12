@@ -99,8 +99,7 @@ export const DayCard: React.FC<DayCardProps> = ({
     const newDetails = getDayWorkDetails(newSlots, roles);
 
     if (newDetails.grandTotal > TOTAL_DAILY_LIMIT_MINUTES) {
-      alert('Negalima viršyti 12 valandų maksimalaus darbo laiko per dieną (DK limitas).');
-      return;
+      // Limit warning will be shown in the visual banner
     }
 
     onChange({ ...day, slots: sortSlots(newSlots) });
@@ -126,12 +125,6 @@ export const DayCard: React.FC<DayCardProps> = ({
     };
 
     const newSlots = sortSlots([...day.slots, newSlot]);
-    const newDetails = getDayWorkDetails(newSlots, roles);
-
-    if (newDetails.isPedagogicalOverLimit) {
-      alert('Dėmesio: viršytas 10 val. 18 min. pedagoginio darbo limitas per dieną.');
-    }
-
     onChange({ ...day, slots: newSlots });
   };
 
@@ -198,23 +191,11 @@ export const DayCard: React.FC<DayCardProps> = ({
     const newSlots = sortSlots([...day.slots, newSlot]);
     const newDetails = getDayWorkDetails(newSlots, roles);
 
-    if (newDetails.grandTotal > TOTAL_DAILY_LIMIT_MINUTES) {
-      alert('Negalima viršyti 12 valandų bendro darbo laiko per dieną (DK limitas visose darbovietėse).');
-      return;
-    }
-
     onChange({ ...day, slots: newSlots });
   };
 
   const handleUpdateSlot = (slotId: string, updates: Partial<DaySlot>) => {
     const newSlots = day.slots.map(s => s.id === slotId ? { ...s, ...updates } : s);
-    const newDetails = getDayWorkDetails(newSlots, roles);
-    
-    if (newDetails.grandTotal > TOTAL_DAILY_LIMIT_MINUTES) {
-      alert('Negalima viršyti 12 valandų bendro darbo laiko per dieną.');
-      return;
-    }
-
     if (updates.startTime) {
       onChange({ ...day, slots: sortSlots(newSlots) });
     } else {
@@ -228,11 +209,6 @@ export const DayCard: React.FC<DayCardProps> = ({
   const handleSlotTimeChange = (slotId: string, field: 'startTime' | 'endTime', newValue: string) => {
     if (autoShift) {
       const newSlots = smartShiftOnSlotTimeChange(day.slots, slotId, field, newValue);
-      const newDetails = getDayWorkDetails(newSlots, roles);
-      if (newDetails.grandTotal > TOTAL_DAILY_LIMIT_MINUTES) {
-        alert('Negalima viršyti 12 valandų bendro darbo laiko per dieną.');
-        return;
-      }
       onChange({ ...day, slots: sortSlots(newSlots) });
     } else {
       handleUpdateSlot(slotId, { [field]: newValue });
@@ -247,11 +223,6 @@ export const DayCard: React.FC<DayCardProps> = ({
     if (autoShift) {
       const delta = timeToMinutes(newStart) - timeToMinutes(firstSlot.startTime);
       const newSlots = shiftAllDaySlots(day.slots, delta);
-      const newDetails = getDayWorkDetails(newSlots, roles);
-      if (newDetails.grandTotal > TOTAL_DAILY_LIMIT_MINUTES) {
-        alert('Negalima viršyti 12 valandų bendro darbo laiko per dieną.');
-        return;
-      }
       onChange({ ...day, slots: newSlots });
     } else {
       handleUpdateSlot(firstSlot.id, { startTime: newStart });
@@ -466,22 +437,36 @@ export const DayCard: React.FC<DayCardProps> = ({
             </button>
           ) : <div />}
 
-          {/* Auto-shift toggle button */}
-          <button
-            onClick={() => setAutoShift(!autoShift)}
-            className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 font-medium transition-all ${
-              autoShift 
-                ? 'bg-blue-50/80 border-blue-200 text-blue-700 hover:bg-blue-100' 
-                : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
-            }`}
-            title={autoShift 
-              ? 'Poslinkis ĮJUNGTAS: Pakeitus darbo pradžios ar pietų laiką, kiti laikai pasislinks automatiškai išlaikant trukmes' 
-              : 'Poslinkis IŠJUNGTAS: Keičiamas tik konkretus laukelis'
-            }
-          >
-            {autoShift ? <Link2 size={11} className="text-blue-600" /> : <Unlink size={11} />}
-            <span>{autoShift ? 'Surišti laikai' : 'Atskirai'}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Auto-shift toggle button */}
+            <button
+              onClick={() => setAutoShift(!autoShift)}
+              className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 font-medium transition-all ${
+                autoShift 
+                  ? 'bg-blue-50/80 border-blue-200 text-blue-700 hover:bg-blue-100' 
+                  : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
+              }`}
+              title={autoShift 
+                ? 'Poslinkis ĮJUNGTAS: Pakeitus darbo pradžios ar pietų laiką, kiti laikai pasislinks automatiškai išlaikant trukmes' 
+                : 'Poslinkis IŠJUNGTAS: Keičiamas tik konkretus laukelis'
+              }
+            >
+              {autoShift ? <Link2 size={11} className="text-blue-600" /> : <Unlink size={11} />}
+              <span>{autoShift ? 'Surišti' : 'Atskirai'}</span>
+            </button>
+
+            {/* Clear day slots button */}
+            {day.slots.length > 0 && (
+              <button
+                onClick={() => onChange({ ...day, slots: [] })}
+                className="text-[10px] text-gray-500 hover:text-red-600 hover:bg-red-50 px-1.5 py-0.5 rounded border border-gray-200 transition-colors flex items-center gap-0.5"
+                title="Išvalyti visus šios dienos laikus"
+              >
+                <Trash2 size={11} />
+                <span>Išvalyti</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Quick Shift Bar: Day Start & Lunch */}

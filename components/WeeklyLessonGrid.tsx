@@ -93,13 +93,24 @@ export const WeeklyLessonGrid: React.FC<WeeklyLessonGridProps> = ({
           <button
             type="button"
             onClick={() => handleSetPreset('clear')}
-            className="px-2 py-1 text-[10px] text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 font-medium rounded border border-gray-200 transition-colors"
-            title="Išvalyti pamokas"
+            className={`px-2 py-1 text-[10px] font-medium rounded border transition-colors flex items-center gap-1 ${
+              totalLessonsCount === 0 
+                ? 'bg-red-50 text-red-700 border-red-300 font-bold' 
+                : 'text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 border-gray-200'
+            }`}
+            title="Išvalyti pamokas (visos dienos be pamokų)"
           >
-            Išvalyti
+            <Trash2 size={11} />
+            <span>Išvalyti</span>
           </button>
         </div>
       </div>
+
+      {totalLessonsCount === 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] p-2 rounded-lg flex items-center gap-1.5 animate-fade-in font-medium">
+          <span>ℹ️ Pamokų tvarkaraštis išvalytas (0 kontaktinių pamokų). Darbo laikas prasidės nuo 08:00 (ar jūsų nustatytos pradžios) ir bus pilnai suplanuotas pagal pasirinktą normą (7,12 val. ar 8 val.).</span>
+        </div>
+      )}
 
       {/* Timetable Matrix */}
       <div className="overflow-x-auto pb-1">
