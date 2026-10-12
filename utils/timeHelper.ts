@@ -68,20 +68,35 @@ export const calculateSlotMinutes = (start: string, end: string): number => {
 };
 
 /**
+ * Calculates the accounted working minutes for a slot.
+ * Pagal Lietuvos pedagoginio darbo tvarką:
+ * Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 60 min. darbo laiko normos),
+ * nors pati pamoka klasėje trunka 45 min.
+ */
+export const getSlotAccountedMinutes = (slot: DaySlot): number => {
+  if (slot.type === 'break') return 0;
+  if (slot.workCategory === 'lesson') {
+    return 60; // 1 pamoka = 1 val. (60 min.) darbo laiko normos
+  }
+  return calculateSlotMinutes(slot.startTime, slot.endTime);
+};
+
+/**
  * Calculates net worked minutes for a day.
  * Break time (lunch) is NOT counted as worked time.
+ * Lesson time counts as 60 min (1 hour) per lesson.
  */
 export const calculateDayNetMinutes = (slots: DaySlot[]): number => {
   return slots.reduce((total, slot) => {
     if (slot.type === 'break') return total;
-    return total + calculateSlotMinutes(slot.startTime, slot.endTime);
+    return total + getSlotAccountedMinutes(slot);
   }, 0);
 };
 
 export const calculateDayRemoteMinutes = (slots: DaySlot[]): number => {
   return slots.reduce((total, slot) => {
     if (slot.type === 'work' && slot.isRemote) {
-      return total + calculateSlotMinutes(slot.startTime, slot.endTime);
+      return total + getSlotAccountedMinutes(slot);
     }
     return total;
   }, 0);
@@ -92,7 +107,7 @@ export const getRoleBreakdown = (slots: DaySlot[]) => {
   
   slots.forEach(slot => {
     if (slot.type === 'work' && slot.roleId) {
-      const duration = calculateSlotMinutes(slot.startTime, slot.endTime);
+      const duration = getSlotAccountedMinutes(slot);
       stats[slot.roleId] = (stats[slot.roleId] || 0) + duration;
     }
   });
@@ -116,14 +131,14 @@ export const getDayWorkDetails = (slots: DaySlot[], roles: JobRole[] = []) => {
   let flexibleMinutes = 0;
 
   slots.forEach(slot => {
-    const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
     if (slot.type === 'break') {
-      breakMinutes += dur;
+      breakMinutes += calculateSlotMinutes(slot.startTime, slot.endTime);
     } else if (slot.type === 'external' || slot.isExternal) {
-      externalMinutes += dur;
+      externalMinutes += calculateSlotMinutes(slot.startTime, slot.endTime);
     } else if (slot.type === 'work') {
+      const dur = getSlotAccountedMinutes(slot);
       if (slot.workCategory === 'lesson') {
-        lessonMinutes += dur;
+        lessonMinutes += dur; // 1 pamoka = 60 min
       } else if (slot.workCategory === 'flexible') {
         flexibleMinutes += dur;
       }

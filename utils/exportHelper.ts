@@ -1,5 +1,5 @@
 import { DaySchedule, WorkConfig } from '../types';
-import { calculateSlotMinutes, calculateDayRemoteMinutes, calculateDayNetMinutes, getDayWorkDetails } from './timeHelper';
+import { calculateSlotMinutes, calculateDayRemoteMinutes, calculateDayNetMinutes, getDayWorkDetails, getSlotAccountedMinutes } from './timeHelper';
 
 export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
   const totalInternalMinutes = schedule.reduce((acc, day) => acc + calculateDayNetMinutes(day.slots.filter(s => s.type === 'work')), 0);
@@ -24,12 +24,12 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
   const mainTargetMinutes = config.roles.reduce((sum, role) => sum + (role.hours * 60) + role.minutes, 0);
   const totalRemoteScheduledMinutes = schedule.reduce((sum, day) => sum + calculateDayRemoteMinutes(day.slots), 0);
 
-  // Calculate Actual Minutes Per Role
+  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes: 1 lesson = 60 min.)
   const actualRoleMinutes: Record<string, number> = {};
   schedule.forEach(day => {
       day.slots.forEach(slot => {
           if (slot.type === 'work' && slot.roleId) {
-              const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
+              const dur = getSlotAccountedMinutes(slot);
               actualRoleMinutes[slot.roleId] = (actualRoleMinutes[slot.roleId] || 0) + dur;
           }
       });

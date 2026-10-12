@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { DaySchedule, WorkConfig } from '../types';
-import { calculateDayNetMinutes, calculateDayRemoteMinutes, calculateSlotMinutes } from '../utils/timeHelper';
+import { calculateDayNetMinutes, calculateDayRemoteMinutes, calculateSlotMinutes, getSlotAccountedMinutes } from '../utils/timeHelper';
 import { exportToTXT } from '../utils/exportHelper';
-import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee } from 'lucide-react';
+import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info } from 'lucide-react';
 
 interface SummaryProps {
   schedule: DaySchedule[];
@@ -11,10 +11,10 @@ interface SummaryProps {
 }
 
 export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpdate }) => {
-  // Internal worked minutes (excluding breaks)
+  // Internal worked minutes (excluding breaks). 1 pamoka = 60 min. darbo laiko apskaitoje
   const totalInternalMinutes = schedule.reduce((acc, day) => {
     return acc + day.slots.reduce((dTotal, s) => {
-      if (s.type === 'work') return dTotal + calculateSlotMinutes(s.startTime, s.endTime);
+      if (s.type === 'work') return dTotal + getSlotAccountedMinutes(s);
       return dTotal;
     }, 0);
   }, 0);
@@ -37,13 +37,11 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
     }, 0);
   }, 0);
 
-  // Lessons vs flexible minutes
-  const totalLessonMinutes = schedule.reduce((total, day) => {
-    return total + day.slots.reduce((dTotal, s) => {
-      if (s.type === 'work' && s.workCategory === 'lesson') return dTotal + calculateSlotMinutes(s.startTime, s.endTime);
-      return dTotal;
-    }, 0);
+  // Lessons count & accounted minutes: Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 1 val.)
+  const totalLessonCount = schedule.reduce((total, day) => {
+    return total + day.slots.filter(s => s.type === 'work' && s.workCategory === 'lesson').length;
   }, 0);
+  const totalLessonAccountedMinutes = totalLessonCount * 60;
 
   const totalFlexibleMinutes = schedule.reduce((total, day) => {
     return total + day.slots.reduce((dTotal, s) => {
@@ -59,13 +57,13 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
   const diff = totalInternalMinutes - mainTargetMinutes;
   const totalRemoteScheduledMinutes = schedule.reduce((sum, day) => sum + calculateDayRemoteMinutes(day.slots), 0);
 
-  // Calculate Actual Minutes Per Role
+  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes so lessons count as 60m)
   const actualRoleMinutes = useMemo(() => {
     const stats: Record<string, number> = {};
     schedule.forEach(day => {
       day.slots.forEach(slot => {
         if (slot.type === 'work' && slot.roleId) {
-          const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
+          const dur = getSlotAccountedMinutes(slot);
           stats[slot.roleId] = (stats[slot.roleId] || 0) + dur;
         }
       });
@@ -180,9 +178,15 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
             </div>
           </div>
           {config.isTeacher && (
-            <div className="text-[11px] text-gray-600 pt-2 border-t border-gray-200/50 flex justify-between">
-              <span>Pamokos: <b>{formatHMSimple(totalLessonMinutes)}</b></span>
-              <span>Lanksčios: <b>{formatHMSimple(totalFlexibleMinutes)}</b></span>
+            <div className="text-[11px] text-gray-600 pt-2 border-t border-gray-200/50 flex flex-col gap-0.5">
+              <div className="flex justify-between">
+                <span>Pamokos ({totalLessonCount} pam.):</span>
+                <b title="1 pamoka = 1 val. darbo laiko normos, nors trunka 45 min.">{formatHMSimple(totalLessonAccountedMinutes)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span>Lanksčios val.:</span>
+                <b>{formatHMSimple(totalFlexibleMinutes)}</b>
+              </div>
             </div>
           )}
         </div>

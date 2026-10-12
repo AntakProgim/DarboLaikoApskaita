@@ -1,5 +1,6 @@
 export type SlotType = 'work' | 'break' | 'external';
 export type WorkCategory = 'lesson' | 'flexible' | 'general';
+export type RoleCategory = 'teacher' | 'specialist' | 'other';
 
 export interface DaySlot {
   id: string;
@@ -27,19 +28,30 @@ export interface ExternalWorkplace {
   hoursPerWeek?: number;
 }
 
+export interface RoleSchedulePreference {
+  mode: 'custom_times' | 'auto_after_lessons' | 'manual_in_schedule';
+  days?: number[]; // [0, 1, 2, 3, 4] (Pirmadienis..Penktadienis)
+  startTime?: string; // "14:00"
+  endTime?: string;   // "16:00"
+}
+
 export interface JobRole {
   id: string;
   title: string;
   hours: number; // Full hours
   minutes: number; // Minutes (0-59)
   isPedagogical?: boolean; // Pedagoginis darbas
+  roleCategory?: RoleCategory; // 'teacher' | 'specialist' | 'other'
   contactHours?: number;   // Pamokų / kontaktinės valandos (val.)
   flexibleHours?: number;  // Lanksčios / nekontaktinės valandos (val.)
+  schedulePreference?: RoleSchedulePreference;
 }
+
+export type WeekdayLessons = Record<number, number[]>; // dayOffset (0..4) -> lesson numbers [1, 2, 3...]
 
 export interface WorkConfig {
   fullName: string;
-  isTeacher: boolean;       // Pedagoginis darbuotojas (mokytojas)
+  isTeacher: boolean;       // Pedagoginis darbuotojas (mokytojas ar pagalbos specialistas)
   roles: JobRole[]; 
   defaultStartTime: string; // HH:mm
   hasLunch: boolean;
@@ -48,6 +60,8 @@ export interface WorkConfig {
   lunchDuration: number;    // minutes (e.g. 30)
   hasOtherWorkplaces: boolean;
   otherWorkplaces: ExternalWorkplace[];
+  weeklyLessons?: WeekdayLessons; // Pamokų tvarkaraštis savaitės dienomis
+  hasCustomLessons?: boolean;
 }
 
 export interface ValidationResult {

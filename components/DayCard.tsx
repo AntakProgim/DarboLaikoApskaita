@@ -142,6 +142,37 @@ export const DayCard: React.FC<DayCardProps> = ({
   };
 
   /**
+   * Add a slot specifically for a secondary / smaller role
+   */
+  const handleAddRoleSlot = (roleId: string) => {
+    const lastSlot = day.slots[day.slots.length - 1];
+    let newStart = "14:00";
+    if (lastSlot) {
+      newStart = lastSlot.endTime;
+    }
+    const targetRole = roles.find(r => r.id === roleId);
+    const pref = targetRole?.schedulePreference;
+    if (pref?.mode === 'custom_times' && pref.startTime && pref.endTime) {
+      newStart = pref.startTime;
+    }
+    const end = (pref?.mode === 'custom_times' && pref.endTime) 
+      ? pref.endTime 
+      : minutesToTime(timeToMinutes(newStart) + 60);
+
+    const newSlot: DaySlot = {
+      id: `sec-${Date.now()}-${roleId}`,
+      startTime: newStart,
+      endTime: end,
+      type: 'work',
+      roleId: roleId,
+      isRemote: false,
+      workCategory: 'general'
+    };
+    const newSlots = [...day.slots, newSlot];
+    onChange({ ...day, slots: sortSlots(newSlots) });
+  };
+
+  /**
    * Add external workplace slot ("Darbas kitoje darbovietėje")
    */
   const handleAddExternalSlot = () => {
@@ -696,6 +727,15 @@ export const DayCard: React.FC<DayCardProps> = ({
                           >
                             Kita
                           </button>
+
+                          {isLesson && (
+                            <span 
+                              className="text-[9px] text-sky-800 bg-sky-100/90 font-bold px-1.5 py-0.5 rounded border border-sky-200 ml-auto whitespace-nowrap" 
+                              title="Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 1 val. norma, nors pati pamoka trunka 45 min.)"
+                            >
+                              45m → 1 val.
+                            </span>
+                          )}
                         </div>
                       )}
 
@@ -815,6 +855,27 @@ export const DayCard: React.FC<DayCardProps> = ({
               <span>+ Kita darbovietė</span>
             </button>
           </div>
+
+          {/* Quick add secondary / smaller roles */}
+          {roles.length > 1 && (
+            <div className="pt-1 border-t border-gray-100 space-y-1">
+              <div className="text-[10px] text-gray-400 font-bold uppercase">Pridėti mažesnių pareigų laiką:</div>
+              <div className="flex flex-wrap gap-1">
+                {roles.slice(1).map(secRole => (
+                  <button
+                    key={secRole.id}
+                    type="button"
+                    onClick={() => handleAddRoleSlot(secRole.id)}
+                    className="py-1 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors"
+                    title={`Pridėti ${secRole.title} laiką į ${day.dayName}`}
+                  >
+                    <Briefcase size={11} className="text-indigo-600" />
+                    <span>+ {secRole.title || 'Papildomos pareigos'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
