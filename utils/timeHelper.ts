@@ -432,3 +432,57 @@ export const placeFlexibleHoursAfterLessons = (
 
   return sortSlots([...slots, newSlot]);
 };
+
+/**
+ * Calculates target working minutes for Monday through Friday (indexes 0 to 4).
+ * If shortFriday is true:
+ * - Friday is 1 hour (60 min) shorter.
+ * - Monday through Thursday absorb 15 minutes each (4 * 15 = 60 min).
+ * Examples:
+ * - 40 hours (2400 min): Mon-Thu = 495 min (8 val. 15 min.), Fri = 420 min (7 val. 00 min.). Total = 2400 min.
+ * - 36 hours (2160 min, t.y. 7,12 val. per dieną): Mon-Thu = 447 min (7 val. 27 min.), Fri = 372 min (6 val. 12 min.). Total = 2160 min.
+ * If shortFriday is false:
+ * - Mon-Fri = equal distribution (e.g. 480 min = 8h 00m, or 432 min = 7h 12m).
+ */
+export const calculateDailyTargets = (
+  totalWeeklyMinutes: number,
+  shortFriday: boolean = true
+): number[] => {
+  if (totalWeeklyMinutes <= 0) return [0, 0, 0, 0, 0];
+
+  // Specific canonical cases for exact matching
+  if (totalWeeklyMinutes === 2400) { // 40 hours
+    if (shortFriday) {
+      return [495, 495, 495, 495, 420]; // 8:15 Mon-Thu, 7:00 Fri
+    }
+    return [480, 480, 480, 480, 480]; // 8:00 Mon-Fri
+  }
+
+  if (totalWeeklyMinutes === 2160) { // 36 hours (7,12 val. / 7h 12m per day)
+    if (shortFriday) {
+      return [447, 447, 447, 447, 372]; // 7:27 Mon-Thu, 6:12 Fri (1 val. trumpiau)
+    }
+    return [432, 432, 432, 432, 432]; // 7:12 Mon-Fri
+  }
+
+  if (!shortFriday || totalWeeklyMinutes < 5 * 60) {
+    const base = Math.floor(totalWeeklyMinutes / 5);
+    const rem = totalWeeklyMinutes % 5;
+    return [0, 1, 2, 3, 4].map(i => base + (i < rem ? 1 : 0));
+  }
+
+  // General case with shortFriday: Friday is 60 min shorter, Mon-Thu get +15 min each
+  const baseAvg = Math.floor(totalWeeklyMinutes / 5);
+  const extraMonThu = 15;
+  const monThu = baseAvg + extraMonThu;
+  const fri = totalWeeklyMinutes - (monThu * 4);
+
+  if (fri >= 60) {
+    return [monThu, monThu, monThu, monThu, fri];
+  }
+
+  // Fallback for smaller weekly hours
+  const base = Math.floor(totalWeeklyMinutes / 5);
+  const rem = totalWeeklyMinutes % 5;
+  return [0, 1, 2, 3, 4].map(i => base + (i < rem ? 1 : 0));
+};

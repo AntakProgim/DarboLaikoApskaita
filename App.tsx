@@ -5,7 +5,15 @@ import { DayCard } from './components/DayCard';
 import { Summary } from './components/Summary';
 import { TimeSelect } from './components/TimeSelect';
 import { WeeklyLessonGrid } from './components/WeeklyLessonGrid';
-import { calculateSlotMinutes, minutesToTime, timeToMinutes, placeFlexibleHoursAfterLessons, getSlotAccountedMinutes, formatDuration } from './utils/timeHelper';
+import { 
+  calculateSlotMinutes, 
+  minutesToTime, 
+  timeToMinutes, 
+  placeFlexibleHoursAfterLessons, 
+  getSlotAccountedMinutes, 
+  formatDuration,
+  calculateDailyTargets 
+} from './utils/timeHelper';
 import { exportToTXT } from './utils/exportHelper';
 import { 
   Sparkles, 
@@ -64,7 +72,8 @@ const App: React.FC = () => {
       2: [1, 2, 3, 4],
       3: [1, 2, 3, 4],
       4: [1, 2, 3]
-    }
+    },
+    shortFriday: true
   });
 
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
@@ -83,6 +92,11 @@ const App: React.FC = () => {
   }, 0);
 
   const totalWeeklyLoadMinutes = mainScheduleMinutes;
+
+  // Day targets according to Lithuanian work standards (e.g. 8:15 Mon-Thu, 7:00 Fri for 40h; 7:27 Mon-Thu, 6:12 Fri for 36h)
+  const dailyTargets = useMemo(() => {
+    return calculateDailyTargets(mainScheduleMinutes, config.shortFriday ?? true);
+  }, [mainScheduleMinutes, config.shortFriday]);
   
   // Calculate total used minutes per role across the entire schedule (1 pamoka = 60 min. darbo laiko normos)
   const roleUsage = useMemo(() => {
@@ -311,6 +325,14 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleSetRolePresetWorkload = (roleId: string, hours: number, minutes: number = 0) => {
+    setConfig(prev => ({
+      ...prev,
+      roles: prev.roles.map(r => r.id === roleId ? { ...r, hours, minutes } : r)
+    }));
+    showToast(`Nustatyta: ${hours} val. ${minutes > 0 ? `${minutes} min.` : ''}`);
+  };
+
   const handleGenerate = async () => {
     if (!isFormValid) return;
     
@@ -326,7 +348,8 @@ const App: React.FC = () => {
         config.hasLunch,
         config.isTeacher,
         config.otherWorkplaces,
-        config.weeklyLessons
+        config.weeklyLessons,
+        config.shortFriday ?? true
       );
       setSchedule(generated);
       setHasGenerated(true);
@@ -388,7 +411,7 @@ const App: React.FC = () => {
   };
 
   /**
-   * Distribute flexible non-contact hours across week outside lesson times
+   * Distribute flexible non-contact hours across week outside lesson times according to daily targets
    */
   const handleDistributeFlexibleHours = () => {
     const targetMin = mainScheduleMinutes;
@@ -400,16 +423,43 @@ const App: React.FC = () => {
       return;
     }
 
-    const minPerDay = Math.ceil(neededMin / 5);
     const primaryRoleId = config.roles[0]?.id || '';
+    let remainingNeeded = neededMin;
 
-    const updatedSchedule = schedule.map(day => ({
-      ...day,
-      slots: placeFlexibleHoursAfterLessons(day.slots, minPerDay, primaryRoleId)
-    }));
+    const updatedSchedule = schedule.map((day, dayIndex) => {
+      const dayTarget = dailyTargets[dayIndex];
+      const currentDayMin = day.slots.reduce((sum, slot) => {
+        if (slot.type === 'work') {
+          return sum + getSlotAccountedMinutes(slot);
+        }
+        return sum;
+      }, 0);
 
-    setSchedule(updatedSchedule);
-    showToast('Lanksčios valandos sėkmingai paskirstytos po pamokų!');
+      const dayDeficit = Math.max(0, dayTarget - currentDayMin);
+      const toAdd = Math.min(remainingNeeded, dayDeficit);
+      remainingNeeded -= toAdd;
+
+      if (toAdd > 0) {
+        return {
+          ...day,
+          slots: placeFlexibleHoursAfterLessons(day.slots, toAdd, primaryRoleId)
+        };
+      }
+      return day;
+    });
+
+    if (remainingNeeded > 0) {
+      const perDay = Math.ceil(remainingNeeded / 5);
+      const finalSchedule = updatedSchedule.map(day => ({
+        ...day,
+        slots: placeFlexibleHoursAfterLessons(day.slots, perDay, primaryRoleId)
+      }));
+      setSchedule(finalSchedule);
+    } else {
+      setSchedule(updatedSchedule);
+    }
+
+    showToast('Lanksčios valandos sėkmingai paskirstytos pagal dienos normas!');
   };
 
   const isFormValid = useMemo(() => {
@@ -541,6 +591,40 @@ const App: React.FC = () => {
                   <p className="text-[11px] text-amber-800 leading-relaxed">
                     Pirmose pareigose nurodykite pareigas, kuriose yra <b>didesnis darbo laikas</b> (pvz., <i>Mokytojas</i> 24 val. ar <i>Pagalbos specialistas</i> 20 val.). Mažesnių (papildomų) pareigų laikus galite nurodyti patys arba leisti sistemai sudėlioti po pamokų.
                   </p>
+                </div>
+              </div>
+
+              {/* Quick Workload Presets */}
+              <div className="bg-sky-50/70 p-2.5 rounded-xl border border-sky-200 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs text-sky-950 font-semibold">
+                  <Sparkles size={14} className="text-blue-600" />
+                  <span>Greiti normos ruošiniai:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSetRolePresetWorkload(config.roles[0]?.id || '1', 36, 0)}
+                    className="text-[11px] bg-white hover:bg-sky-100 text-sky-900 font-bold px-2.5 py-1 rounded-md border border-sky-300 transition-colors shadow-2xs flex items-center gap-1"
+                    title="Pedagogų savaitinė norma: 36 val. (po 7 val. 12 min. per dieną, penktadieniais 1 val. trumpiau)"
+                  >
+                    <span>⚡ 36 val. (7,12 val./d.)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetRolePresetWorkload(config.roles[0]?.id || '1', 40, 0)}
+                    className="text-[11px] bg-white hover:bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-md border border-blue-300 transition-colors shadow-2xs flex items-center gap-1"
+                    title="Standartinė savaitinė norma: 40 val. (po 8 val. 00 min. per dieną, penktadieniais 1 val. trumpiau)"
+                  >
+                    <span>⚡ 40 val. (8,00 val./d.)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetRolePresetWorkload(config.roles[0]?.id || '1', 7, 12)}
+                    className="text-[11px] bg-white hover:bg-gray-100 text-gray-700 font-medium px-2 py-1 rounded-md border border-gray-300 transition-colors shadow-2xs"
+                    title="Dienos norma: 7 val. 12 min."
+                  >
+                    <span>⚡ 7 val. 12 min.</span>
+                  </button>
                 </div>
               </div>
               
@@ -935,6 +1019,37 @@ const App: React.FC = () => {
               )}
             </div>
 
+            {/* Short Friday setting (Penktadieniais 1 val. trumpiau) */}
+            <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-sm text-indigo-950">
+                  <input
+                    type="checkbox"
+                    checked={config.shortFriday ?? true}
+                    onChange={(e) => setConfig({ ...config, shortFriday: e.target.checked })}
+                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                  />
+                  <Calendar size={16} className="text-indigo-600" />
+                  <span>Penktadieniais 1 val. trumpiau</span>
+                </label>
+                <span className="text-[10px] bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded-full font-semibold">
+                  {config.shortFriday ?? true ? 'Aktyvu (I–IV +15 min, V -1 val.)' : 'Išjungta (po lygiai)'}
+                </span>
+              </div>
+              <p className="text-xs text-indigo-800 leading-relaxed">
+                {config.shortFriday ?? true ? (
+                  <span>
+                    Esant <b>40 val.</b> savaitei: I–IV dirbama po <b>8 val. 15 min.</b>, o penktadienį 1 val. trumpiau – <b>7 val. 00 min.</b><br />
+                    Esant <b>36 val.</b> (pedagogų norma po 7,12): I–IV dirbama po <b>7 val. 27 min.</b>, o penktadienį 1 val. trumpiau – <b>6 val. 12 min.</b>
+                  </span>
+                ) : (
+                  <span>
+                    Visomis dienomis darbo laikas išdėstomas vienodai: po <b>8 val. 00 min.</b> (esant 40 val.) arba po <b>7 val. 12 min.</b> (esant 36 val. / 7,12).
+                  </span>
+                )}
+              </p>
+            </div>
+
             {/* Other Workplaces Configuration */}
             <div className="bg-teal-50/70 p-3.5 rounded-xl border border-teal-200 space-y-2">
               <div className="flex items-center justify-between">
@@ -1095,6 +1210,7 @@ const App: React.FC = () => {
                 onCopyDayToOthers={handleCopyDayToOthers}
                 isTeacher={config.isTeacher}
                 otherWorkplaces={config.otherWorkplaces}
+                dayTargetMinutes={dailyTargets[day.dateOffset]}
               />
             ))}
           </div>

@@ -48,6 +48,7 @@ interface DayCardProps {
   onCopyDayToOthers?: (sourceDay: DaySchedule) => void;
   isTeacher?: boolean;
   otherWorkplaces?: ExternalWorkplace[];
+  dayTargetMinutes?: number;
 }
 
 export const DayCard: React.FC<DayCardProps> = ({ 
@@ -58,7 +59,8 @@ export const DayCard: React.FC<DayCardProps> = ({
   onApplyMondayToAll,
   onCopyDayToOthers,
   isTeacher = false,
-  otherWorkplaces = []
+  otherWorkplaces = [],
+  dayTargetMinutes
 }) => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [draggedSlotIndex, setDraggedSlotIndex] = useState<number | null>(null);
@@ -376,7 +378,21 @@ export const DayCard: React.FC<DayCardProps> = ({
                     Pagrindinė
                   </span>
                 )}
+                {day.dateOffset === 4 && (
+                  <span className="text-[9px] bg-indigo-100 text-indigo-700 font-semibold px-1 py-0.2 rounded" title="Penktadienį darbo laikas 1 val. trumpesnis">
+                    -1 val.
+                  </span>
+                )}
               </div>
+              {dayTargetMinutes !== undefined && dayTargetMinutes > 0 && (
+                <div className="flex items-center gap-1 text-[10px] text-gray-500 mt-0.5">
+                  <span>Tikslas:</span>
+                  <span className="font-mono font-bold text-gray-700">{formatDuration(dayTargetMinutes)}</span>
+                  {details.internalTotal === dayTargetMinutes && (
+                    <span className="text-green-600 font-bold ml-0.5" title="Dienos darbo laikas tiksliai atitinka normą">✓</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

@@ -62,6 +62,7 @@ export interface WorkConfig {
   otherWorkplaces: ExternalWorkplace[];
   weeklyLessons?: WeekdayLessons; // Pamokų tvarkaraštis savaitės dienomis
   hasCustomLessons?: boolean;
+  shortFriday?: boolean; // Penktadieniais 1 val. trumpiau (I-IV +15 min, V -60 min)
 }
 
 export interface ValidationResult {
