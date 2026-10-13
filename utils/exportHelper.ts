@@ -76,8 +76,8 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
 
   schedule.forEach(day => {
     const details = getDayWorkDetails(day.slots, config.roles);
-    content += `----------------------------------------\n`;
-    content += `${day.dayName.toUpperCase()}\n`;
+    const remoteTag = day.isRemote ? ' [DARBAS IŠ NAMŲ / NUOTOLINIS]' : '';
+    content += `${day.dayName.toUpperCase()}${remoteTag}\n`;
     content += `  Darbo laikas pagrindinėje: ${formatHM(details.internalTotal)}\n`;
     if (details.externalMinutes > 0) {
       content += `  Darbo laikas kitose darbovietėse: ${formatHM(details.externalMinutes)}\n`;

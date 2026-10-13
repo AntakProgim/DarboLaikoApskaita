@@ -35,7 +35,8 @@ import {
   GraduationCap,
   Sparkles,
   AlertTriangle,
-  ChevronDown
+  ChevronDown,
+  Home
 } from 'lucide-react';
 import { TimeSelect } from './TimeSelect';
 
@@ -77,6 +78,21 @@ export const DayCard: React.FC<DayCardProps> = ({
   const breakSlot = day.slots.find(s => s.type === 'break');
   const breakMinutes = breakSlot ? calculateSlotMinutes(breakSlot.startTime, breakSlot.endTime) : 0;
 
+  const handleToggleRemoteDay = () => {
+    const nextIsRemote = !day.isRemote;
+    const updatedSlots = day.slots.map(s => {
+      if (s.type === 'work') {
+        return { ...s, isRemote: nextIsRemote };
+      }
+      return s;
+    });
+    onChange({
+      ...day,
+      isRemote: nextIsRemote,
+      slots: updatedSlots
+    });
+  };
+
   const handleAddSlot = (category: WorkCategory = 'general') => {
     const lastSlot = day.slots[day.slots.length - 1];
     let newStart = "08:00";
@@ -91,7 +107,7 @@ export const DayCard: React.FC<DayCardProps> = ({
       endTime: minutesToTime(timeToMinutes(newStart) + 60),
       type: 'work',
       roleId: roles[0]?.id || '',
-      isRemote: false,
+      isRemote: day.isRemote || false,
       workCategory: category
     };
     
@@ -106,7 +122,7 @@ export const DayCard: React.FC<DayCardProps> = ({
   };
 
   /**
-   * Add a specific school lesson (1-8 pamoka)
+   * Add a specific school lesson (1-9 pamoka)
    */
   const handleAddLesson = (lessonNumber: number) => {
     setShowLessonPicker(false);
@@ -119,7 +135,7 @@ export const DayCard: React.FC<DayCardProps> = ({
       endTime: bell.endTime,
       type: 'work',
       roleId: roles[0]?.id || '',
-      isRemote: false,
+      isRemote: day.isRemote || false,
       workCategory: 'lesson',
       lessonNumber
     };
@@ -132,7 +148,7 @@ export const DayCard: React.FC<DayCardProps> = ({
    * Add flexible hours outside lesson hours (e.g. after lessons)
    */
   const handleAddFlexibleHours = () => {
-    const newSlots = placeFlexibleHoursAfterLessons(day.slots, 60, roles[0]?.id || '');
+    const newSlots = placeFlexibleHoursAfterLessons(day.slots, 60, roles[0]?.id || '', day.isRemote || false);
     onChange({ ...day, slots: newSlots });
   };
 
@@ -160,7 +176,7 @@ export const DayCard: React.FC<DayCardProps> = ({
       endTime: end,
       type: 'work',
       roleId: roleId,
-      isRemote: false,
+      isRemote: day.isRemote || false,
       workCategory: 'general'
     };
     const newSlots = [...day.slots, newSlot];
@@ -329,9 +345,26 @@ export const DayCard: React.FC<DayCardProps> = ({
   };
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border flex flex-col h-full hover:shadow-md transition-shadow relative ${
-      details.isPedagogicalOverLimit || details.isTotalOverLimit ? 'border-red-300 ring-1 ring-red-300' : 'border-gray-200'
+    <div className={`bg-white rounded-xl shadow-sm border flex flex-col h-full hover:shadow-md transition-all relative ${
+      day.isRemote 
+        ? 'border-emerald-400 ring-2 ring-emerald-300/70 shadow-emerald-50/50' 
+        : details.isPedagogicalOverLimit || details.isTotalOverLimit 
+          ? 'border-red-300 ring-1 ring-red-300' 
+          : 'border-gray-200'
     }`}>
+      {/* Remote Work Indicator Banner */}
+      {day.isRemote && (
+        <div className="bg-emerald-600 text-white text-[11px] font-semibold py-1 px-3 rounded-t-xl flex items-center justify-between shadow-2xs">
+          <span className="flex items-center gap-1.5">
+            <Home size={12} className="text-emerald-100" />
+            <span>Nuotolinis darbas (darbas iš namų)</span>
+          </span>
+          <span className="text-[10px] bg-emerald-700/90 text-emerald-100 px-1.5 py-0.2 rounded font-mono">
+            Iš namų ✓
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-4 pb-3 border-b border-gray-100">
         <div className="flex justify-between items-start mb-2">
@@ -342,7 +375,7 @@ export const DayCard: React.FC<DayCardProps> = ({
               {day.dayName.substring(0, 3)}
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="font-bold text-gray-800 text-sm">{day.dayName}</h3>
                 {day.dateOffset === 0 && (
                   <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-1.5 py-0.2 rounded">
@@ -352,6 +385,12 @@ export const DayCard: React.FC<DayCardProps> = ({
                 {day.dateOffset === 4 && (
                   <span className="text-[9px] bg-indigo-100 text-indigo-700 font-semibold px-1 py-0.2 rounded" title="Penktadienį darbo laikas 1 val. trumpesnis">
                     -1 val.
+                  </span>
+                )}
+                {day.isRemote && (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shadow-2xs animate-fade-in" title="Ši diena pažymėta kaip darbas iš namų">
+                    <Home size={10} className="text-emerald-700" />
+                    <span>Iš namų</span>
                   </span>
                 )}
               </div>
@@ -390,6 +429,14 @@ export const DayCard: React.FC<DayCardProps> = ({
               </div>
             )}
 
+            {/* Remote work duration */}
+            {details.remoteMinutes > 0 && (
+              <div className="text-[10px] font-semibold text-emerald-700 flex items-center justify-end gap-1 mt-0.5" title="Nuotolinio darbo iš namų trukmė">
+                <Home size={10} />
+                <span>Iš namų: {formatDuration(details.remoteMinutes)}</span>
+              </div>
+            )}
+
             {/* If has external workplace, show total day work */}
             {details.externalMinutes > 0 && (
               <div className="text-[10px] font-medium text-teal-700 flex items-center justify-end gap-1 mt-0.5" title="Bendra darbo diena su kitomis darbovietėmis (maks. 12 val.)">
@@ -416,7 +463,7 @@ export const DayCard: React.FC<DayCardProps> = ({
         )}
 
         {/* Action button: Apply Monday to all days or copy day */}
-        <div className="flex items-center justify-between gap-1 pt-1 border-t border-gray-50">
+        <div className="flex items-center justify-between gap-1 pt-1 border-t border-gray-50 flex-wrap">
           {day.dateOffset === 0 && onApplyMondayToAll ? (
             <button
               onClick={handleTriggerApplyMonday}
@@ -437,7 +484,22 @@ export const DayCard: React.FC<DayCardProps> = ({
             </button>
           ) : <div />}
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* Mark day as remote work ('darbas iš namų') */}
+            <button
+              type="button"
+              onClick={handleToggleRemoteDay}
+              className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 font-semibold transition-all ${
+                day.isRemote 
+                  ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 shadow-2xs' 
+                  : 'bg-white border-gray-200 text-gray-600 hover:text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50/60'
+              }`}
+              title={day.isRemote ? "Nuotolinis darbas ('darbas iš namų') įjungtas. Spustelėkite, norėdami atšaukti" : "Pažymėti šią dieną kaip nuotolinį darbą ('darbas iš namų')"}
+            >
+              <Home size={11} className={day.isRemote ? 'text-white' : 'text-emerald-600'} />
+              <span>{day.isRemote ? 'Iš namų ✓' : 'Darbas iš namų'}</span>
+            </button>
+
             {/* Auto-shift toggle button */}
             <button
               onClick={() => setAutoShift(!autoShift)}

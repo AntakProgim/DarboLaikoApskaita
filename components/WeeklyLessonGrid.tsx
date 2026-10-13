@@ -20,7 +20,7 @@ const WEEKDAYS = [
 export const WeeklyLessonGrid: React.FC<WeeklyLessonGridProps> = ({ 
   value = {}, 
   onChange,
-  primaryRoleTitle = 'Mokytojo / Pagalbos specialisto'
+  primaryRoleTitle = 'Pagrindinės pareigos'
 }) => {
   const toggleLesson = (dayOffset: number, lessonNumber: number) => {
     const currentDayLessons = value[dayOffset] || [];

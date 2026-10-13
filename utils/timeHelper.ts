@@ -4,14 +4,15 @@ export const PEDAGOGICAL_DAILY_LIMIT_MINUTES = 10 * 60 + 18; // 618 minutes (10 
 export const TOTAL_DAILY_LIMIT_MINUTES = 12 * 60; // 720 minutes (12 val.)
 
 export const STANDARD_LESSON_BELLS = [
-  { number: 1, startTime: '08:00', endTime: '08:45', title: '1 pamoka (08:00 - 08:45)' },
-  { number: 2, startTime: '08:55', endTime: '09:40', title: '2 pamoka (08:55 - 09:40)' },
-  { number: 3, startTime: '09:50', endTime: '10:35', title: '3 pamoka (09:50 - 10:35)' },
-  { number: 4, startTime: '10:55', endTime: '11:40', title: '4 pamoka (10:55 - 11:40)' },
-  { number: 5, startTime: '12:00', endTime: '12:45', title: '5 pamoka (12:00 - 12:45)' },
-  { number: 6, startTime: '12:55', endTime: '13:40', title: '6 pamoka (12:55 - 13:40)' },
-  { number: 7, startTime: '13:50', endTime: '14:35', title: '7 pamoka (13:50 - 14:35)' },
-  { number: 8, startTime: '14:45', endTime: '15:30', title: '8 pamoka (14:45 - 15:30)' }
+  { number: 1, startTime: '08:30', endTime: '09:15', title: '1 pamoka (08:30 - 09:15)' },
+  { number: 2, startTime: '09:25', endTime: '10:10', title: '2 pamoka (09:25 - 10:10)' },
+  { number: 3, startTime: '10:20', endTime: '11:05', title: '3 pamoka (10:20 - 11:05)' },
+  { number: 4, startTime: '11:25', endTime: '12:10', title: '4 pamoka (11:25 - 12:10)' },
+  { number: 5, startTime: '12:30', endTime: '13:15', title: '5 pamoka (12:30 - 13:15)' },
+  { number: 6, startTime: '13:30', endTime: '14:15', title: '6 pamoka (13:30 - 14:15)' },
+  { number: 7, startTime: '14:25', endTime: '15:10', title: '7 pamoka (14:25 - 15:10)' },
+  { number: 8, startTime: '15:20', endTime: '16:05', title: '8 pamoka (15:20 - 16:05)' },
+  { number: 9, startTime: '16:15', endTime: '17:00', title: '9 pamoka (16:15 - 17:00)' }
 ];
 
 export const roundToNearest5 = (time: string): string => {
@@ -129,6 +130,7 @@ export const getDayWorkDetails = (slots: DaySlot[], roles: JobRole[] = []) => {
   let breakMinutes = 0;
   let lessonMinutes = 0;
   let flexibleMinutes = 0;
+  let remoteMinutes = 0;
 
   slots.forEach(slot => {
     if (slot.type === 'break') {
@@ -137,6 +139,9 @@ export const getDayWorkDetails = (slots: DaySlot[], roles: JobRole[] = []) => {
       externalMinutes += calculateSlotMinutes(slot.startTime, slot.endTime);
     } else if (slot.type === 'work') {
       const dur = getSlotAccountedMinutes(slot);
+      if (slot.isRemote) {
+        remoteMinutes += dur;
+      }
       if (slot.workCategory === 'lesson') {
         lessonMinutes += dur; // 1 pamoka = 60 min
       } else if (slot.workCategory === 'flexible') {
@@ -166,6 +171,7 @@ export const getDayWorkDetails = (slots: DaySlot[], roles: JobRole[] = []) => {
     breakMinutes,
     lessonMinutes,
     flexibleMinutes,
+    remoteMinutes,
     isPedagogicalOverLimit: pedagogicalMinutes > PEDAGOGICAL_DAILY_LIMIT_MINUTES,
     isTotalOverLimit: grandTotal > TOTAL_DAILY_LIMIT_MINUTES,
     remainingPedagogical: Math.max(0, PEDAGOGICAL_DAILY_LIMIT_MINUTES - pedagogicalMinutes),

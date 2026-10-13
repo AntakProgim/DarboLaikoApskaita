@@ -43,21 +43,7 @@ const App: React.FC = () => {
     fullName: '',
     isTeacher: true,
     roles: [
-      { id: '1', title: 'Mokytojas', hours: 24, minutes: 0, isPedagogical: true, roleCategory: 'teacher' },
-      { 
-        id: '2', 
-        title: 'Pailgintos dienos grupės auklėtojas', 
-        hours: 10, 
-        minutes: 0, 
-        isPedagogical: true, 
-        roleCategory: 'other',
-        schedulePreference: {
-          mode: 'auto_after_lessons',
-          days: [0, 1, 2, 3, 4],
-          startTime: '13:00',
-          endTime: '15:00'
-        }
-      }
+      { id: '1', title: '', hours: 0, minutes: 0, isPedagogical: true, roleCategory: 'teacher' }
     ],
     defaultStartTime: '08:00',
     hasLunch: true,
@@ -65,13 +51,13 @@ const App: React.FC = () => {
     lunchEndTime: '12:30',
     lunchDuration: 30,
     hasOtherWorkplaces: false,
-    otherWorkplaces: [{ id: 'ext-1', name: 'Kita ugdymo įstaiga' }],
+    otherWorkplaces: [{ id: 'ext-1', name: '' }],
     weeklyLessons: {
-      0: [1, 2, 3, 4],
-      1: [1, 2, 3, 4],
-      2: [1, 2, 3, 4],
-      3: [1, 2, 3, 4],
-      4: [1, 2, 3]
+      0: [],
+      1: [],
+      2: [],
+      3: [],
+      4: []
     },
     shortFriday: true
   });
@@ -79,6 +65,7 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [hasAttemptedGenerate, setHasAttemptedGenerate] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -149,7 +136,7 @@ const App: React.FC = () => {
           { 
             id: Date.now().toString(), 
             title: '', 
-            hours: 8, 
+            hours: 0, 
             minutes: 0, 
             isPedagogical: true,
             roleCategory: 'other'
@@ -333,7 +320,15 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    if (!isFormValid) return;
+    setHasAttemptedGenerate(true);
+    if (!isFormValid) {
+      if (mainScheduleMinutes === 0) {
+        showToast('Nurodykite darbo valandas pareigose (pvz., pasirinkite 36 val. arba 40 val.).');
+      } else {
+        showToast('Prašome įrašyti pareigų pavadinimą.');
+      }
+      return;
+    }
     
     setLoading(true);
     try {
@@ -377,6 +372,7 @@ const App: React.FC = () => {
       if (day.id === monday.id) return day;
       return {
         ...day,
+        isRemote: monday.isRemote,
         slots: monday.slots.map((s, idx) => ({
           ...s,
           id: `slot-${day.dateOffset}-${Date.now()}-${idx}`
@@ -398,6 +394,7 @@ const App: React.FC = () => {
       if (day.id === sourceDay.id) return day;
       return {
         ...day,
+        isRemote: sourceDay.isRemote,
         slots: sourceDay.slots.map((s, idx) => ({
           ...s,
           id: `slot-${day.dateOffset}-${Date.now()}-${idx}`
@@ -462,14 +459,13 @@ const App: React.FC = () => {
   };
 
   const isFormValid = useMemo(() => {
-    const hasName = config.fullName.trim() !== '';
     const rolesValid = config.roles.every(r => {
       const validation = getRoleValidation(r);
       return !validation.title && !validation.time;
     });
     const totalValid = mainScheduleMinutes > 0;
-    return hasName && rolesValid && totalValid;
-  }, [config.fullName, config.roles, mainScheduleMinutes]);
+    return rolesValid && totalValid;
+  }, [config.roles, mainScheduleMinutes]);
 
   const handleClearEntireSchedule = () => {
     setSchedule(prev => prev.map(day => ({ ...day, slots: [] })));
@@ -688,24 +684,6 @@ const App: React.FC = () => {
                             </div>
                           )}
 
-                          {/* Quick Role Category Selector */}
-                          <div className="flex items-center gap-1 ml-1">
-                            <button
-                              type="button"
-                              onClick={() => handleRoleChange(role.id, 'title', role.title || 'Mokytojas')}
-                              className="text-[10px] text-gray-500 hover:text-blue-700 hover:underline"
-                            >
-                              Mokytojas
-                            </button>
-                            <span className="text-gray-300">•</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRoleChange(role.id, 'title', role.title || 'Pagalbos specialistas')}
-                              className="text-[10px] text-gray-500 hover:text-blue-700 hover:underline"
-                            >
-                              Pagalbos specialistas
-                            </button>
-                          </div>
                         </div>
 
                         {config.roles.length > 1 && !isPrimary && (
@@ -730,10 +708,10 @@ const App: React.FC = () => {
                               value={role.title}
                               onChange={(e) => handleRoleChange(role.id, 'title', e.target.value)}
                               className="w-full bg-transparent focus:outline-none text-sm font-semibold placeholder-gray-400 text-gray-800"
-                              placeholder={isPrimary ? "Pagrindinės pareigos (pvz. Mokytojas)" : "Mažesnės pareigos (pvz. Pailginta grupė, Būrelis)"}
+                              placeholder=""
                             />
                           </div>
-                          {validation.title && <span className="text-[10px] text-red-500">{validation.title}</span>}
+                          {hasAttemptedGenerate && validation.title && <span className="text-[10px] text-red-500">{validation.title}</span>}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">

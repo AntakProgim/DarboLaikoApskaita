@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { DaySchedule, WorkConfig } from '../types';
 import { calculateDayNetMinutes, calculateDayRemoteMinutes, calculateSlotMinutes, getSlotAccountedMinutes } from '../utils/timeHelper';
 import { exportToTXT } from '../utils/exportHelper';
-import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info } from 'lucide-react';
+import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info, Home } from 'lucide-react';
 
 interface SummaryProps {
   schedule: DaySchedule[];
@@ -191,19 +191,20 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
           )}
         </div>
 
-        <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100 flex flex-col justify-between">
+        <div className="p-4 bg-emerald-50/80 rounded-xl border border-emerald-200 flex flex-col justify-between">
           <div>
-            <div className="text-xs uppercase tracking-wide text-indigo-600 font-semibold mb-1 flex items-center gap-1">
-              Nuotolinis (Fakt.)
+            <div className="text-xs uppercase tracking-wide text-emerald-700 font-semibold mb-1 flex items-center gap-1.5">
+              <Home size={14} className="text-emerald-600" />
+              <span>Darbas iš namų</span>
             </div>
-            <div className="text-2xl font-bold text-indigo-800">{formatHM(totalRemoteScheduledMinutes)}</div>
+            <div className="text-2xl font-bold text-emerald-900">{formatHM(totalRemoteScheduledMinutes)}</div>
           </div>
-          {totalBreakMinutes > 0 && (
-            <div className="text-[11px] text-orange-700 pt-2 border-t border-indigo-200/50 flex items-center justify-between">
-              <span className="flex items-center gap-1"><Coffee size={11} /> Pietūs (viso):</span>
-              <span className="font-mono font-bold">{formatHMSimple(totalBreakMinutes)}</span>
-            </div>
-          )}
+          <div className="text-[11px] text-emerald-800 pt-2 border-t border-emerald-200/60 flex items-center justify-between font-medium">
+            <span>Nuotolinės dienos:</span>
+            <span className="font-bold font-mono bg-emerald-100 text-emerald-900 px-1.5 py-0.2 rounded">
+              {schedule.filter(d => d.isRemote || calculateDayRemoteMinutes(d.slots) > 0).length} d.
+            </span>
+          </div>
         </div>
       </div>
 

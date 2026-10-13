@@ -20,6 +20,7 @@ export interface DaySchedule {
   dayName: string; // Pirmadienis, Antradienis, etc.
   dateOffset: number; // 0 for Monday, 1 for Tuesday...
   slots: DaySlot[];
+  isRemote?: boolean; // Nuotolinis darbas ('darbas iš namų')
 }
 
 export interface ExternalWorkplace {

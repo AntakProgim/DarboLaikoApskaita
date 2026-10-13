@@ -62,7 +62,7 @@ export const generateSmartSchedule = async (
     const teacherRule = isTeacher
       ? `8. TEACHER / SPECIALIST WORK RULES:
       - The first role is the primary duty with the highest workload.
-      - First, schedule contact lesson periods during standard school hours (e.g. 08:00-08:45, 08:55-09:40, 09:50-10:35, 10:55-11:40, 12:00-12:45, 12:55-13:40). Set workCategory to 'lesson' and assign appropriate lesson numbers.
+      - First, schedule contact lesson periods during standard school hours (e.g. 08:30-09:15, 09:25-10:10, 10:20-11:05, 11:25-12:10, 12:30-13:15, 13:30-14:15, 14:25-15:10, 15:20-16:05, 16:15-17:00). Set workCategory to 'lesson' and assign appropriate lesson numbers.
       - Next, allocate flexible non-contact hours (pasiruošimas, metodinė veikla) strictly outside lesson hours (e.g. after lessons). Set workCategory to 'flexible'.
       - Then arrange other secondary duties (if any) around lesson times.
       - Daily pedagogical work must NEVER exceed 10 hours 18 minutes (618 minutes), and total daily work must never exceed 12 hours.`
