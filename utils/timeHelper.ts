@@ -69,15 +69,72 @@ export const calculateSlotMinutes = (start: string, end: string): number => {
 };
 
 /**
+ * Checks if a slot represents a school lesson (by category, lesson number, or matching bells).
+ */
+export const isSlotLessonTime = (slot: DaySlot): boolean => {
+  if (slot.type !== 'work') return false;
+  if (slot.workCategory === 'lesson') return true;
+  if (slot.lessonNumber !== undefined && slot.lessonNumber > 0) return true;
+  if (STANDARD_LESSON_BELLS.some(b => b.startTime === slot.startTime && b.endTime === slot.endTime)) return true;
+  return false;
+};
+
+/**
+ * Finds the teacher/educator role from config roles.
+ * Prioritizes roles whose title explicitly contains "mokyt", "pamok", "pedagog" (e.g. "Mokytojas"),
+ * and strictly prevents administrative roles like "Direktorius" from being chosen as the teaching role.
+ */
+export const getSlotTeacherRole = (roles: JobRole[]): JobRole | undefined => {
+  if (!roles || roles.length === 0) return undefined;
+
+  // 1. Search for role whose title explicitly mentions teacher/pedagogical terms:
+  // "mokyt" (Mokytojas, Mokytoja), "pamok", "pedagog", "auklėtoj", "ugd", "dėst"
+  const byTitle = roles.find(r => {
+    const t = (r.title || '').toLowerCase().trim();
+    return t.includes('mokyt') || t.includes('pamok') || t.includes('pedagog') || t.includes('auklėtoj') || t.includes('ugd') || t.includes('dėst');
+  });
+  if (byTitle) return byTitle;
+
+  // 2. Next, check roleCategory === 'teacher' or isPedagogical, BUT strictly exclude administrative titles (direktorius, vadovas, pavaduotojas, administratorius)
+  const byCat = roles.find(r => {
+    const t = (r.title || '').toLowerCase().trim();
+    const isAdmin = t.includes('direkt') || t.includes('vadov') || t.includes('administr') || t.includes('vedėj');
+    return (r.roleCategory === 'teacher' || r.isPedagogical) && !isAdmin;
+  });
+  if (byCat) return byCat;
+
+  // 3. Any role that is not a director/manager/admin
+  const nonAdmin = roles.find(r => {
+    const t = (r.title || '').toLowerCase().trim();
+    return !t.includes('direkt') && !t.includes('vadov') && !t.includes('administr') && !t.includes('vedėj');
+  });
+  if (nonAdmin) return nonAdmin;
+
+  return roles[0];
+};
+
+/**
+ * Resolves the role that a slot belongs to.
+ * When a slot is lesson time, it automatically represents teacher work (Mokytojas).
+ */
+export const getSlotRole = (slot: DaySlot, roles: JobRole[] = []): JobRole | undefined => {
+  if (!roles || roles.length === 0) return undefined;
+  if (slot.workCategory === 'lesson' || isSlotLessonTime(slot)) {
+    return getSlotTeacherRole(roles);
+  }
+  return roles.find(r => r.id === slot.roleId) || roles[0];
+};
+
+/**
  * Calculates the accounted working minutes for a slot.
  * Pagal Lietuvos pedagoginio darbo tvarką:
- * Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 60 min. darbo laiko normos),
- * nors pati pamoka klasėje trunka 45 min.
+ * Mokytojui pedagoginio darbo laiko skaičiavime viena pamoka (net jei ji trunka 45 min.)
+ * automatiškai įskaitoma kaip 60 min. (1 val.) darbo krūvio.
  */
 export const getSlotAccountedMinutes = (slot: DaySlot): number => {
   if (slot.type === 'break') return 0;
-  if (slot.workCategory === 'lesson') {
-    return 60; // 1 pamoka = 1 val. (60 min.) darbo laiko normos
+  if (slot.workCategory === 'lesson' || isSlotLessonTime(slot)) {
+    return 60; // 1 pamoka (nors trunka 45 min.) = 60 min. (1 val.) pedagoginio darbo krūvio
   }
   return calculateSlotMinutes(slot.startTime, slot.endTime);
 };
@@ -103,13 +160,17 @@ export const calculateDayRemoteMinutes = (slots: DaySlot[]): number => {
   }, 0);
 };
 
-export const getRoleBreakdown = (slots: DaySlot[]) => {
+export const getRoleBreakdown = (slots: DaySlot[], roles: JobRole[] = []): Record<string, number> => {
   const stats: Record<string, number> = {};
   
   slots.forEach(slot => {
-    if (slot.type === 'work' && slot.roleId) {
-      const duration = getSlotAccountedMinutes(slot);
-      stats[slot.roleId] = (stats[slot.roleId] || 0) + duration;
+    if (slot.type === 'work') {
+      const assignedRole = getSlotRole(slot, roles);
+      const roleId = assignedRole ? assignedRole.id : slot.roleId;
+      if (roleId) {
+        const duration = getSlotAccountedMinutes(slot);
+        stats[roleId] = (stats[roleId] || 0) + duration;
+      }
     }
   });
   
@@ -142,13 +203,13 @@ export const getDayWorkDetails = (slots: DaySlot[], roles: JobRole[] = []) => {
       if (slot.isRemote) {
         remoteMinutes += dur;
       }
-      if (slot.workCategory === 'lesson') {
+      if (slot.workCategory === 'lesson' || isSlotLessonTime(slot)) {
         lessonMinutes += dur; // 1 pamoka = 60 min
       } else if (slot.workCategory === 'flexible') {
         flexibleMinutes += dur;
       }
       
-      const role = roles.find(r => r.id === slot.roleId);
+      const role = getSlotRole(slot, roles);
       // If role specified as non-pedagogical, separate it
       const isPed = role ? (role.isPedagogical !== false) : true;
       if (isPed) {
@@ -492,4 +553,135 @@ export const calculateDailyTargets = (
   const base = Math.floor(totalWeeklyMinutes / 5);
   const rem = totalWeeklyMinutes % 5;
   return [0, 1, 2, 3, 4].map(i => base + (i < rem ? 1 : 0));
+};
+
+/**
+ * Reconciles schedule so that every role's total accounted minutes
+ * exactly match its configured weekly target (hours * 60 + minutes).
+ * Trims or expands flexible / non-contact hours so no role is over or under budget.
+ */
+export const reconcileScheduleWithRoleTargets = (
+  schedule: DaySchedule[],
+  roles: JobRole[]
+): DaySchedule[] => {
+  if (!schedule || schedule.length === 0 || !roles || roles.length === 0) return schedule;
+
+  let updatedSchedule: DaySchedule[] = schedule.map(day => ({
+    ...day,
+    slots: [...day.slots]
+  }));
+
+  roles.forEach(role => {
+    const targetMin = (role.hours * 60) + role.minutes;
+    if (targetMin <= 0) return;
+
+    // Calculate current accounted minutes for this role across all days
+    const calculateCurrent = () => {
+      let sum = 0;
+      updatedSchedule.forEach(day => {
+        day.slots.forEach(slot => {
+          if (slot.type === 'work' && getSlotRole(slot, roles)?.id === role.id) {
+            sum += getSlotAccountedMinutes(slot);
+          }
+        });
+      });
+      return sum;
+    };
+
+    let actualMin = calculateCurrent();
+    let diff = actualMin - targetMin;
+
+    // Case 1: Over budget (e.g. +13 min) -> trim flexible / non-lesson slots for this role
+    if (diff > 0) {
+      for (let d = updatedSchedule.length - 1; d >= 0 && diff > 0; d--) {
+        const day = updatedSchedule[d];
+        const newSlots: DaySlot[] = [];
+
+        for (let s = 0; s < day.slots.length; s++) {
+          const slot = day.slots[s];
+          const isThisRole = slot.type === 'work' && getSlotRole(slot, roles)?.id === role.id;
+          const isLesson = slot.workCategory === 'lesson' || isSlotLessonTime(slot);
+
+          // We only trim flexible / non-lesson slots
+          if (isThisRole && !isLesson && diff > 0) {
+            const dur = calculateSlotMinutes(slot.startTime, slot.endTime);
+            const trimAmount = Math.min(dur, diff);
+
+            if (dur - trimAmount <= 0) {
+              // Slot completely trimmed away
+              diff -= dur;
+              continue;
+            } else {
+              // Trim slot: if slot touches next slot, adjust startTime; otherwise adjust endTime
+              const nextSlot = day.slots[s + 1];
+              if (nextSlot && slot.endTime === nextSlot.startTime) {
+                const newStartMin = timeToMinutes(slot.startTime) + trimAmount;
+                newSlots.push({
+                  ...slot,
+                  startTime: minutesToTime(newStartMin)
+                });
+              } else {
+                const newEndMin = timeToMinutes(slot.endTime) - trimAmount;
+                newSlots.push({
+                  ...slot,
+                  endTime: minutesToTime(newEndMin)
+                });
+              }
+              diff -= trimAmount;
+            }
+          } else {
+            newSlots.push(slot);
+          }
+        }
+
+        updatedSchedule[d] = {
+          ...day,
+          slots: sortSlots(newSlots)
+        };
+      }
+    } else if (diff < 0) {
+      // Case 2: Under budget -> expand flexible slot or add flexible time
+      const needed = Math.abs(diff);
+      let targetDayIndex = updatedSchedule.findIndex(d => 
+        d.slots.some(s => s.type === 'work' && getSlotRole(s, roles)?.id === role.id)
+      );
+      if (targetDayIndex === -1) targetDayIndex = 2; // Wednesday default
+
+      const day = updatedSchedule[targetDayIndex];
+      const flexSlotIndex = day.slots.findIndex(s => 
+        s.type === 'work' && 
+        getSlotRole(s, roles)?.id === role.id && 
+        s.workCategory !== 'lesson' && 
+        !isSlotLessonTime(s)
+      );
+
+      if (flexSlotIndex !== -1) {
+        const slot = day.slots[flexSlotIndex];
+        const newEndMin = timeToMinutes(slot.endTime) + needed;
+        const updatedSlots = [...day.slots];
+        updatedSlots[flexSlotIndex] = {
+          ...slot,
+          endTime: minutesToTime(newEndMin)
+        };
+        updatedSchedule[targetDayIndex] = {
+          ...day,
+          slots: sortSlots(updatedSlots)
+        };
+      } else {
+        const updatedSlots = placeFlexibleHoursAfterLessons(
+          day.slots,
+          needed,
+          role.id,
+          day.isRemote || false,
+          "08:00"
+        );
+        updatedSchedule[targetDayIndex] = {
+          ...day,
+          slots: updatedSlots
+        };
+      }
+    }
+  });
+
+  return updatedSchedule;
 };

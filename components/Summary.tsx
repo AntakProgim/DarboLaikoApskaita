@@ -1,6 +1,13 @@
 import React, { useMemo } from 'react';
 import { DaySchedule, WorkConfig } from '../types';
-import { calculateDayNetMinutes, calculateDayRemoteMinutes, calculateSlotMinutes, getSlotAccountedMinutes } from '../utils/timeHelper';
+import { 
+  calculateDayNetMinutes, 
+  calculateDayRemoteMinutes, 
+  calculateSlotMinutes, 
+  getSlotAccountedMinutes,
+  getSlotRole,
+  isSlotLessonTime
+} from '../utils/timeHelper';
 import { exportToTXT } from '../utils/exportHelper';
 import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info, Home } from 'lucide-react';
 
@@ -39,7 +46,7 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
 
   // Lessons count & accounted minutes: Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 1 val.)
   const totalLessonCount = schedule.reduce((total, day) => {
-    return total + day.slots.filter(s => s.type === 'work' && s.workCategory === 'lesson').length;
+    return total + day.slots.filter(s => s.type === 'work' && (s.workCategory === 'lesson' || isSlotLessonTime(s))).length;
   }, 0);
   const totalLessonAccountedMinutes = totalLessonCount * 60;
 
@@ -57,19 +64,23 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
   const diff = totalInternalMinutes - mainTargetMinutes;
   const totalRemoteScheduledMinutes = schedule.reduce((sum, day) => sum + calculateDayRemoteMinutes(day.slots), 0);
 
-  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes so lessons count as 60m)
+  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes so lessons count as 60m for teacher)
   const actualRoleMinutes = useMemo(() => {
     const stats: Record<string, number> = {};
     schedule.forEach(day => {
       day.slots.forEach(slot => {
-        if (slot.type === 'work' && slot.roleId) {
-          const dur = getSlotAccountedMinutes(slot);
-          stats[slot.roleId] = (stats[slot.roleId] || 0) + dur;
+        if (slot.type === 'work') {
+          const assignedRole = getSlotRole(slot, config.roles);
+          const rId = assignedRole ? assignedRole.id : slot.roleId;
+          if (rId) {
+            const dur = getSlotAccountedMinutes(slot);
+            stats[rId] = (stats[rId] || 0) + dur;
+          }
         }
       });
     });
     return stats;
-  }, [schedule]);
+  }, [schedule, config.roles]);
   
   const formatHM = (mins: number) => {
     const h = Math.floor(mins / 60);

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { DaySchedule, WorkConfig, JobRole, ExternalWorkplace, WeekdayLessons, RoleCategory, RoleSchedulePreference } from './types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { DaySchedule, WorkConfig, JobRole, ExternalWorkplace, WeekdayLessons, RoleCategory, RoleSchedulePreference, WorkCategory } from './types';
 import { generateSmartSchedule } from './services/geminiService';
 import { DayCard } from './components/DayCard';
 import { Summary } from './components/Summary';
@@ -12,7 +12,10 @@ import {
   placeFlexibleHoursAfterLessons, 
   getSlotAccountedMinutes, 
   formatDuration,
-  calculateDailyTargets 
+  calculateDailyTargets,
+  getSlotRole,
+  getSlotTeacherRole,
+  isSlotLessonTime
 } from './utils/timeHelper';
 import { exportToTXT } from './utils/exportHelper';
 import { 
@@ -43,7 +46,7 @@ const App: React.FC = () => {
     fullName: '',
     isTeacher: true,
     roles: [
-      { id: '1', title: '', hours: 0, minutes: 0, isPedagogical: true, roleCategory: 'teacher' }
+      { id: '1', title: '', hours: 0, minutes: 0, isPedagogical: true, roleCategory: 'other' }
     ],
     defaultStartTime: '08:00',
     hasLunch: true,
@@ -92,14 +95,49 @@ const App: React.FC = () => {
     
     schedule.forEach(day => {
       day.slots.forEach(slot => {
-        if (slot.type === 'work' && slot.roleId) {
-          const dur = getSlotAccountedMinutes(slot);
-          usage[slot.roleId] = (usage[slot.roleId] || 0) + dur;
+        if (slot.type === 'work') {
+          const assignedRole = getSlotRole(slot, config.roles);
+          const rId = assignedRole ? assignedRole.id : slot.roleId;
+          if (rId) {
+            const dur = getSlotAccountedMinutes(slot);
+            usage[rId] = (usage[rId] || 0) + dur;
+          }
         }
       });
     });
     return usage;
   }, [schedule, config.roles]);
+
+  // Auto-sync: ensure any lesson slots in active schedule belong to the teacher role (Mokytojas)
+  useEffect(() => {
+    if (schedule.length === 0) return;
+    const teacherRole = getSlotTeacherRole(config.roles);
+    if (!teacherRole) return;
+
+    let hasMismatch = false;
+    const updatedSchedule = schedule.map(day => {
+      let dayChanged = false;
+      const updatedSlots = day.slots.map(slot => {
+        if (slot.type === 'work' && (slot.workCategory === 'lesson' || isSlotLessonTime(slot))) {
+          if (slot.roleId !== teacherRole.id) {
+            dayChanged = true;
+            hasMismatch = true;
+            return {
+              ...slot,
+              roleId: teacherRole.id,
+              workCategory: 'lesson' as WorkCategory
+            };
+          }
+        }
+        return slot;
+      });
+      return dayChanged ? { ...day, slots: updatedSlots } : day;
+    });
+
+    if (hasMismatch) {
+      setSchedule(updatedSchedule);
+    }
+  }, [config.roles, schedule]);
 
   const getRoleValidation = (role: JobRole) => {
     const errors: { title?: string; time?: string; warning?: string } = {};
@@ -139,7 +177,13 @@ const App: React.FC = () => {
             hours: 0, 
             minutes: 0, 
             isPedagogical: true,
-            roleCategory: 'other'
+            roleCategory: 'other',
+            schedulePreference: {
+              mode: 'auto_after_lessons',
+              days: [2],
+              startTime: '13:00',
+              endTime: '15:00'
+            }
           }
         ]
       }));
@@ -161,7 +205,16 @@ const App: React.FC = () => {
       ...prev,
       roles: prev.roles.map(r => {
         if (r.id !== id) return r;
-        return { ...r, [field]: value };
+        const updated: JobRole = { ...r, [field]: value };
+        if (field === 'title' && typeof value === 'string') {
+          const lower = value.toLowerCase().trim();
+          if (lower.includes('mokyt') || lower.includes('pamok')) {
+            updated.roleCategory = 'teacher';
+          } else if (lower.includes('direkt') || lower.includes('vadov') || lower.includes('administr')) {
+            updated.roleCategory = 'other';
+          }
+        }
+        return updated;
       })
     }));
   };
@@ -1029,7 +1082,7 @@ const App: React.FC = () => {
                 <WeeklyLessonGrid
                   value={config.weeklyLessons || {}}
                   onChange={(newLessons) => setConfig({ ...config, weeklyLessons: newLessons })}
-                  primaryRoleTitle={config.roles[0]?.title || 'Pagrindinių pareigų'}
+                  primaryRoleTitle={getSlotTeacherRole(config.roles)?.title || config.roles[0]?.title || 'Mokytojo pareigų'}
                 />
               </div>
             )}

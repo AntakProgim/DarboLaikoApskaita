@@ -1,5 +1,13 @@
 import { DaySchedule, WorkConfig } from '../types';
-import { calculateSlotMinutes, calculateDayRemoteMinutes, calculateDayNetMinutes, getDayWorkDetails, getSlotAccountedMinutes } from './timeHelper';
+import { 
+  calculateSlotMinutes, 
+  calculateDayRemoteMinutes, 
+  calculateDayNetMinutes, 
+  getDayWorkDetails, 
+  getSlotAccountedMinutes,
+  getSlotRole,
+  isSlotLessonTime
+} from './timeHelper';
 
 export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
   const totalInternalMinutes = schedule.reduce((acc, day) => acc + calculateDayNetMinutes(day.slots.filter(s => s.type === 'work')), 0);
@@ -24,13 +32,17 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
   const mainTargetMinutes = config.roles.reduce((sum, role) => sum + (role.hours * 60) + role.minutes, 0);
   const totalRemoteScheduledMinutes = schedule.reduce((sum, day) => sum + calculateDayRemoteMinutes(day.slots), 0);
 
-  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes: 1 lesson = 60 min.)
+  // Calculate Actual Minutes Per Role (using getSlotAccountedMinutes: 1 lesson = 60 min. of teacher work)
   const actualRoleMinutes: Record<string, number> = {};
   schedule.forEach(day => {
       day.slots.forEach(slot => {
-          if (slot.type === 'work' && slot.roleId) {
-              const dur = getSlotAccountedMinutes(slot);
-              actualRoleMinutes[slot.roleId] = (actualRoleMinutes[slot.roleId] || 0) + dur;
+          if (slot.type === 'work') {
+              const assignedRole = getSlotRole(slot, config.roles);
+              const rId = assignedRole ? assignedRole.id : slot.roleId;
+              if (rId) {
+                const dur = getSlotAccountedMinutes(slot);
+                actualRoleMinutes[rId] = (actualRoleMinutes[rId] || 0) + dur;
+              }
           }
       });
   });
@@ -98,17 +110,23 @@ export const exportToTXT = (schedule: DaySchedule[], config: WorkConfig) => {
               const place = slot.workplaceName || 'Kita darbovietė';
               content += `  ${slot.startTime} - ${slot.endTime} | KITA DARBOVIETĖ: ${place} | ${formatHM(dur)}\n`;
           } else {
-              const role = config.roles.find(r => r.id === slot.roleId);
-              const roleTitle = role ? role.title : 'Nenurodyta';
+              const assignedRole = getSlotRole(slot, config.roles);
+              const roleTitle = assignedRole ? assignedRole.title : 'Nenurodyta';
+              const roleId = assignedRole ? assignedRole.id : slot.roleId;
+              const isLesson = slot.workCategory === 'lesson' || isSlotLessonTime(slot);
               const loc = slot.isRemote ? 'NUOTOLINIU' : 'KONTAKTINIU / MOKYKLOJE';
-              const cat = slot.workCategory === 'lesson' 
+              const cat = isLesson 
                 ? `[PAMOKA #${slot.lessonNumber || ''}]` 
                 : slot.workCategory === 'flexible' 
                   ? '[LANKSČIOS / NEKONTAKTINĖS]' 
                   : '';
-              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} ${cat} (${loc}) | ${formatHM(dur)}\n`;
+              const accountedMin = getSlotAccountedMinutes(slot);
+              const timeNote = isLesson ? `1 val. mokytojo darbo (pamoka 45 min.)` : formatHM(dur);
+              content += `  ${slot.startTime} - ${slot.endTime} | ${roleTitle} ${cat} (${loc}) | ${timeNote}\n`;
               
-              dailyStats[slot.roleId] = (dailyStats[slot.roleId] || 0) + dur;
+              if (roleId) {
+                dailyStats[roleId] = (dailyStats[roleId] || 0) + accountedMin;
+              }
           }
       });
     }

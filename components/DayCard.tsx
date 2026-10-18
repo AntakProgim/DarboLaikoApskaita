@@ -14,6 +14,9 @@ import {
   getDayWorkDetails,
   STANDARD_LESSON_BELLS,
   placeFlexibleHoursAfterLessons,
+  isSlotLessonTime,
+  getSlotTeacherRole,
+  getSlotRole,
   PEDAGOGICAL_DAILY_LIMIT_MINUTES,
   TOTAL_DAILY_LIMIT_MINUTES
 } from '../utils/timeHelper';
@@ -71,7 +74,7 @@ export const DayCard: React.FC<DayCardProps> = ({
 
   // Calculate detailed work statistics respecting labor limits
   const details = useMemo(() => getDayWorkDetails(day.slots, roles), [day.slots, roles]);
-  const dailyRoleStats = useMemo(() => getRoleBreakdown(day.slots), [day.slots]);
+  const dailyRoleStats = useMemo(() => getRoleBreakdown(day.slots, roles), [day.slots, roles]);
 
   // Identify first slot and break slot
   const firstSlot = day.slots.length > 0 ? day.slots[0] : null;
@@ -123,18 +126,21 @@ export const DayCard: React.FC<DayCardProps> = ({
 
   /**
    * Add a specific school lesson (1-9 pamoka)
+   * Pagal pedagoginio darbo tvarką pamoka priskiriama mokytojo pareigoms ir skaičiuojama kaip 1 val. norma
    */
   const handleAddLesson = (lessonNumber: number) => {
     setShowLessonPicker(false);
     const bell = STANDARD_LESSON_BELLS.find(b => b.number === lessonNumber);
     if (!bell) return;
 
+    const teacherRole = getSlotTeacherRole(roles);
+
     const newSlot: DaySlot = {
       id: `lesson-${Date.now()}-${lessonNumber}`,
       startTime: bell.startTime,
       endTime: bell.endTime,
       type: 'work',
-      roleId: roles[0]?.id || '',
+      roleId: teacherRole?.id || roles[0]?.id || '',
       isRemote: day.isRemote || false,
       workCategory: 'lesson',
       lessonNumber
@@ -148,7 +154,8 @@ export const DayCard: React.FC<DayCardProps> = ({
    * Add flexible hours outside lesson hours (e.g. after lessons)
    */
   const handleAddFlexibleHours = () => {
-    const newSlots = placeFlexibleHoursAfterLessons(day.slots, 60, roles[0]?.id || '', day.isRemote || false);
+    const teacherRole = getSlotTeacherRole(roles);
+    const newSlots = placeFlexibleHoursAfterLessons(day.slots, 60, teacherRole?.id || roles[0]?.id || '', day.isRemote || false);
     onChange({ ...day, slots: newSlots });
   };
 
@@ -211,7 +218,29 @@ export const DayCard: React.FC<DayCardProps> = ({
   };
 
   const handleUpdateSlot = (slotId: string, updates: Partial<DaySlot>) => {
-    const newSlots = day.slots.map(s => s.id === slotId ? { ...s, ...updates } : s);
+    const teacherRole = getSlotTeacherRole(roles);
+    const newSlots = day.slots.map(s => {
+      if (s.id !== slotId) return s;
+      const merged: DaySlot = { ...s, ...updates };
+
+      // If category was explicitly set to 'lesson', link to teacher role
+      if (updates.workCategory === 'lesson' && teacherRole) {
+        merged.roleId = teacherRole.id;
+      }
+
+      // If time changed, check if it matches a standard school bell
+      if (updates.startTime || updates.endTime) {
+        const bell = STANDARD_LESSON_BELLS.find(b => b.startTime === merged.startTime && b.endTime === merged.endTime);
+        if (bell) {
+          merged.workCategory = 'lesson';
+          merged.lessonNumber = bell.number;
+          if (teacherRole) merged.roleId = teacherRole.id;
+        }
+      }
+
+      return merged;
+    });
+
     if (updates.startTime) {
       onChange({ ...day, slots: sortSlots(newSlots) });
     } else {
@@ -223,12 +252,28 @@ export const DayCard: React.FC<DayCardProps> = ({
    * Handle changes to slot start or end time with auto-shifting if enabled.
    */
   const handleSlotTimeChange = (slotId: string, field: 'startTime' | 'endTime', newValue: string) => {
-    if (autoShift) {
-      const newSlots = smartShiftOnSlotTimeChange(day.slots, slotId, field, newValue);
-      onChange({ ...day, slots: sortSlots(newSlots) });
-    } else {
-      handleUpdateSlot(slotId, { [field]: newValue });
-    }
+    const teacherRole = getSlotTeacherRole(roles);
+    let newSlots = autoShift 
+      ? smartShiftOnSlotTimeChange(day.slots, slotId, field, newValue)
+      : day.slots.map(s => s.id === slotId ? { ...s, [field]: newValue } : s);
+
+    // If the changed slot matches a standard lesson bell, auto-mark it as lesson and link to teacher role
+    newSlots = newSlots.map(s => {
+      if (s.id === slotId && s.type === 'work') {
+        const bell = STANDARD_LESSON_BELLS.find(b => b.startTime === s.startTime && b.endTime === s.endTime);
+        if (bell) {
+          return {
+            ...s,
+            workCategory: 'lesson' as WorkCategory,
+            lessonNumber: bell.number,
+            roleId: teacherRole ? teacherRole.id : s.roleId
+          };
+        }
+      }
+      return s;
+    });
+
+    onChange({ ...day, slots: sortSlots(newSlots) });
   };
 
   /**
@@ -648,8 +693,9 @@ export const DayCard: React.FC<DayCardProps> = ({
           const showBottomIndicator = isDropTarget && draggedSlotIndex !== null && draggedSlotIndex < index;
 
           const isExternal = slot.type === 'external' || slot.isExternal;
-          const isLesson = slot.workCategory === 'lesson';
+          const isLesson = slot.workCategory === 'lesson' || isSlotLessonTime(slot);
           const isFlexible = slot.workCategory === 'flexible';
+          const assignedRole = getSlotRole(slot, roles);
 
           return (
             <div 
@@ -695,18 +741,25 @@ export const DayCard: React.FC<DayCardProps> = ({
                   </div>
 
                   {/* Time Range */}
-                  <div className="flex items-center gap-1">
-                    <TimeSelect 
-                      value={slot.startTime} 
-                      onChange={(v) => handleSlotTimeChange(slot.id, 'startTime', v)} 
-                      selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
-                    />
-                    <span className="text-gray-300 text-xs">-</span>
-                    <TimeSelect 
-                      value={slot.endTime} 
-                      onChange={(v) => handleSlotTimeChange(slot.id, 'endTime', v)} 
-                      selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
-                    />
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1">
+                      <TimeSelect 
+                        value={slot.startTime} 
+                        onChange={(v) => handleSlotTimeChange(slot.id, 'startTime', v)} 
+                        selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
+                      />
+                      <span className="text-gray-300 text-xs">-</span>
+                      <TimeSelect 
+                        value={slot.endTime} 
+                        onChange={(v) => handleSlotTimeChange(slot.id, 'endTime', v)} 
+                        selectClassName="w-12 py-1 px-0.5 text-xs rounded border-gray-300 focus:ring-1"
+                      />
+                    </div>
+                    {isLesson && (
+                      <span className="text-[9px] text-sky-700 font-semibold leading-none pl-0.5" title="Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 1 val. darbo)">
+                        45 min. (įskaitoma 1 val.)
+                      </span>
+                    )}
                   </div>
 
                   {/* Actions */}
@@ -762,7 +815,13 @@ export const DayCard: React.FC<DayCardProps> = ({
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => handleUpdateSlot(slot.id, { workCategory: 'lesson' })}
+                            onClick={() => {
+                              const tRole = getSlotTeacherRole(roles);
+                              handleUpdateSlot(slot.id, { 
+                                workCategory: 'lesson',
+                                ...(tRole ? { roleId: tRole.id } : {})
+                              });
+                            }}
                             className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors flex items-center gap-1 ${
                               isLesson ? 'bg-sky-200 text-sky-900 border border-sky-300' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                             }`}
@@ -793,10 +852,10 @@ export const DayCard: React.FC<DayCardProps> = ({
 
                           {isLesson && (
                             <span 
-                              className="text-[9px] text-sky-800 bg-sky-100/90 font-bold px-1.5 py-0.5 rounded border border-sky-200 ml-auto whitespace-nowrap" 
+                              className="text-[9px] text-sky-900 bg-sky-100 font-bold px-1.5 py-0.5 rounded border border-sky-200 ml-auto whitespace-nowrap" 
                               title="Mokytojui pamokos laikas skaičiuojamas valandomis (1 pamoka = 1 val. norma, nors pati pamoka trunka 45 min.)"
                             >
-                              45m → 1 val.
+                              {slot.lessonNumber ? `${slot.lessonNumber} pam.` : 'Pamoka'} (45m → 1 val.)
                             </span>
                           )}
                         </div>
@@ -805,8 +864,16 @@ export const DayCard: React.FC<DayCardProps> = ({
                       {/* Role Selector */}
                       <div className="relative w-full flex items-center gap-1">
                         <select 
-                          value={slot.roleId} 
-                          onChange={(e) => handleUpdateSlot(slot.id, { roleId: e.target.value })}
+                          value={assignedRole?.id || slot.roleId} 
+                          onChange={(e) => {
+                            const newRoleId = e.target.value;
+                            const tRole = getSlotTeacherRole(roles);
+                            const isMovingAwayFromTeacher = tRole && newRoleId !== tRole.id && isLesson;
+                            handleUpdateSlot(slot.id, { 
+                              roleId: newRoleId,
+                              ...(isMovingAwayFromTeacher ? { workCategory: 'general' } : {})
+                            });
+                          }}
                           className={`w-full text-xs p-1.5 pr-6 bg-transparent border rounded focus:outline-none font-medium appearance-none cursor-pointer ${
                             isOverBudget ? 'text-red-700 border-red-300 bg-red-100/50' : 'text-gray-700 border-gray-200 bg-white focus:border-blue-500'
                           }`}
