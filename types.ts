@@ -34,6 +34,8 @@ export interface RoleSchedulePreference {
   days?: number[]; // [0, 1, 2, 3, 4] (Pirmadienis..Penktadienis)
   startTime?: string; // "14:00"
   endTime?: string;   // "16:00"
+  flexibleDays?: number[]; // Pasirinktos dienos lanksčioms valandoms
+  flexibleDistribution?: 'after_lessons' | 'equal_days' | 'specific_day';
 }
 
 export interface JobRole {

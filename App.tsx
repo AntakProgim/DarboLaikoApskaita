@@ -5,6 +5,7 @@ import { DayCard } from './components/DayCard';
 import { Summary } from './components/Summary';
 import { TimeSelect } from './components/TimeSelect';
 import { WeeklyLessonGrid } from './components/WeeklyLessonGrid';
+import { RoleDayDistributionModal } from './components/RoleDayDistributionModal';
 import { 
   calculateSlotMinutes, 
   minutesToTime, 
@@ -71,6 +72,7 @@ const App: React.FC = () => {
   const [hasGenerated, setHasGenerated] = useState(false);
   const [hasAttemptedGenerate, setHasAttemptedGenerate] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showDistributionModal, setShowDistributionModal] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -384,10 +386,17 @@ const App: React.FC = () => {
       return;
     }
     
+    // Always open modal to ask which days each role's time should be distributed to
+    setShowDistributionModal(true);
+  };
+
+  const handleConfirmDistributionAndGenerate = async (updatedRoles: JobRole[]) => {
+    setShowDistributionModal(false);
+    setConfig(prev => ({ ...prev, roles: updatedRoles }));
     setLoading(true);
     try {
       const generated = await generateSmartSchedule(
-        config.roles, 
+        updatedRoles, 
         mainScheduleMinutes,
         config.defaultStartTime,
         config.lunchDuration,
@@ -401,8 +410,10 @@ const App: React.FC = () => {
       );
       setSchedule(generated);
       setHasGenerated(true);
+      showToast('Darbo laikas sėkmingai išdėliotas pagal pasirinktas dienas!');
     } catch (error) {
       console.error("Failed to generate", error);
+      showToast('Nepavyko sugeneruoti grafiko.');
     } finally {
       setLoading(false);
     }
@@ -1282,14 +1293,32 @@ const App: React.FC = () => {
               <p className="text-lg font-bold text-gray-800">{formatTotalLoad(totalWeeklyLoadMinutes)}</p>
             </div>
 
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !isFormValid}
-              className="w-full bg-blue-600 text-white py-3.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
-            >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-              {loading ? 'Generuojama...' : 'Generuoti Grafiką pagal pamokų tvarkaraštį'}
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isFormValid) {
+                    setHasAttemptedGenerate(true);
+                    showToast('Pirmiausia užpildykite pareigų informaciją.');
+                    return;
+                  }
+                  setShowDistributionModal(true);
+                }}
+                className="w-full bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 border border-indigo-200/90 py-2.5 rounded-xl font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-2xs"
+              >
+                <Calendar size={15} className="text-indigo-600" />
+                <span>Kuriomis dienomis dirbama? (Pasirinkti pareigų dienas)</span>
+              </button>
+
+              <button
+                onClick={handleGenerate}
+                disabled={loading || !isFormValid}
+                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+              >
+                {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
+                {loading ? 'Generuojama...' : 'Pasirinkti dienas ir Generuoti Grafiką'}
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -1306,6 +1335,16 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex flex-wrap items-center gap-2">
+              {/* Distribution Modal Reopen Button */}
+              <button
+                onClick={() => setShowDistributionModal(true)}
+                className="text-xs flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors font-semibold shadow-2xs"
+                title="Keisti, kuriomis savaitės dienomis išdėliotas kiekvienų pareigų darbo laikas"
+              >
+                <Calendar size={13} />
+                <span>Dienų paskirstymas</span>
+              </button>
+
               {/* Teacher helper button: Distribute flexible hours outside lessons */}
               {config.isTeacher && (
                 <button
@@ -1397,6 +1436,14 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Role & Day Distribution Selection Modal */}
+      <RoleDayDistributionModal
+        isOpen={showDistributionModal}
+        onClose={() => setShowDistributionModal(false)}
+        config={config}
+        onConfirm={handleConfirmDistributionAndGenerate}
+      />
     </div>
   );
 };

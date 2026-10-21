@@ -640,45 +640,85 @@ export const reconcileScheduleWithRoleTargets = (
         };
       }
     } else if (diff < 0) {
-      // Case 2: Under budget -> expand flexible slot or add flexible time
-      const needed = Math.abs(diff);
-      let targetDayIndex = updatedSchedule.findIndex(d => 
-        d.slots.some(s => s.type === 'work' && getSlotRole(s, roles)?.id === role.id)
-      );
-      if (targetDayIndex === -1) targetDayIndex = 2; // Wednesday default
+      // Case 2: Under budget -> distribute missing minutes across scheduled days
+      let needed = Math.abs(diff);
+      const prefDays = role.schedulePreference?.days || [];
+      const scheduledDays = updatedSchedule
+        .map((d, idx) => ({ d, idx }))
+        .filter(x => x.d.slots.some(s => s.type === 'work' && getSlotRole(s, roles)?.id === role.id))
+        .map(x => x.idx);
 
-      const day = updatedSchedule[targetDayIndex];
-      const flexSlotIndex = day.slots.findIndex(s => 
-        s.type === 'work' && 
-        getSlotRole(s, roles)?.id === role.id && 
-        s.workCategory !== 'lesson' && 
-        !isSlotLessonTime(s)
-      );
+      const targetDays = scheduledDays.length > 0 
+        ? scheduledDays 
+        : (prefDays.length > 0 ? prefDays : [0, 1, 2, 3, 4]);
 
-      if (flexSlotIndex !== -1) {
-        const slot = day.slots[flexSlotIndex];
-        const newEndMin = timeToMinutes(slot.endTime) + needed;
-        const updatedSlots = [...day.slots];
-        updatedSlots[flexSlotIndex] = {
-          ...slot,
-          endTime: minutesToTime(newEndMin)
-        };
-        updatedSchedule[targetDayIndex] = {
-          ...day,
-          slots: sortSlots(updatedSlots)
-        };
-      } else {
-        const updatedSlots = placeFlexibleHoursAfterLessons(
-          day.slots,
-          needed,
-          role.id,
-          day.isRemote || false,
-          "08:00"
+      const perDay = Math.max(1, Math.floor(needed / targetDays.length));
+
+      for (let i = 0; i < targetDays.length && needed > 0; i++) {
+        const dIdx = targetDays[i];
+        if (dIdx < 0 || dIdx >= updatedSchedule.length) continue;
+
+        const day = updatedSchedule[dIdx];
+        const isLastDay = i === targetDays.length - 1;
+        const toAdd = isLastDay ? needed : Math.min(needed, perDay);
+
+        const flexSlotIndex = day.slots.findIndex(s => 
+          s.type === 'work' && 
+          getSlotRole(s, roles)?.id === role.id && 
+          s.workCategory !== 'lesson' && 
+          !isSlotLessonTime(s)
         );
-        updatedSchedule[targetDayIndex] = {
-          ...day,
-          slots: updatedSlots
-        };
+
+        if (flexSlotIndex !== -1) {
+          const slot = day.slots[flexSlotIndex];
+          const curEndMin = timeToMinutes(slot.endTime);
+          // If extending forward is reasonable (before 17:30), extend endTime
+          if (curEndMin + toAdd <= 17 * 60 + 30) {
+            const updatedSlots = [...day.slots];
+            updatedSlots[flexSlotIndex] = {
+              ...slot,
+              endTime: minutesToTime(curEndMin + toAdd)
+            };
+            updatedSchedule[dIdx] = {
+              ...day,
+              slots: sortSlots(updatedSlots)
+            };
+            needed -= toAdd;
+          } else {
+            // Otherwise, extend backwards if possible
+            const curStartMin = timeToMinutes(slot.startTime);
+            const prevSlot = day.slots[flexSlotIndex - 1];
+            const prevEndMin = prevSlot ? timeToMinutes(prevSlot.endTime) : 8 * 60;
+            const canShiftBack = Math.max(0, curStartMin - prevEndMin);
+            const shiftBack = Math.min(toAdd, canShiftBack);
+
+            const updatedSlots = [...day.slots];
+            updatedSlots[flexSlotIndex] = {
+              ...slot,
+              startTime: minutesToTime(curStartMin - shiftBack),
+              endTime: minutesToTime(curEndMin + (toAdd - shiftBack))
+            };
+            updatedSchedule[dIdx] = {
+              ...day,
+              slots: sortSlots(updatedSlots)
+            };
+            needed -= toAdd;
+          }
+        } else {
+          // If no flexible slot exists on this day, add one neatly
+          const updatedSlots = placeFlexibleHoursAfterLessons(
+            day.slots,
+            toAdd,
+            role.id,
+            day.isRemote || false,
+            "08:00"
+          );
+          updatedSchedule[dIdx] = {
+            ...day,
+            slots: updatedSlots
+          };
+          needed -= toAdd;
+        }
       }
     }
   });
