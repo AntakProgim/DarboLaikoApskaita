@@ -6,6 +6,7 @@ import {
   calculateSlotMinutes, 
   getSlotAccountedMinutes,
   getSlotRole,
+  getSlotTeacherRole,
   isSlotLessonTime
 } from '../utils/timeHelper';
 import { exportToTXT } from '../utils/exportHelper';
@@ -50,9 +51,17 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
   }, 0);
   const totalLessonAccountedMinutes = totalLessonCount * 60;
 
+  const teacherRole = getSlotTeacherRole(config.roles);
   const totalFlexibleMinutes = schedule.reduce((total, day) => {
     return total + day.slots.reduce((dTotal, s) => {
-      if (s.type === 'work' && s.workCategory === 'flexible') return dTotal + calculateSlotMinutes(s.startTime, s.endTime);
+      if (s.type === 'work') {
+        const isLesson = s.workCategory === 'lesson' || isSlotLessonTime(s);
+        const assignedRole = getSlotRole(s, config.roles);
+        const isTeacherRole = teacherRole && assignedRole?.id === teacherRole.id;
+        if (!isLesson && (s.workCategory === 'flexible' || isTeacherRole)) {
+          return dTotal + calculateSlotMinutes(s.startTime, s.endTime);
+        }
+      }
       return dTotal;
     }, 0);
   }, 0);
@@ -196,8 +205,14 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
               </div>
               <div className="flex justify-between">
                 <span>Lanksčios val.:</span>
-                <b>{formatHMSimple(totalFlexibleMinutes)}</b>
+                <b title="Nekontaktinės / lanksčios valandos po pamokų">{formatHMSimple(totalFlexibleMinutes)}</b>
               </div>
+              {teacherRole && (
+                <div className="flex justify-between text-sky-800 font-semibold border-t border-sky-100 pt-0.5 mt-0.5">
+                  <span>Pedagoginis viso:</span>
+                  <span>{formatHMSimple(totalLessonAccountedMinutes + totalFlexibleMinutes)}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

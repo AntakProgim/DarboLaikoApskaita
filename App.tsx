@@ -15,6 +15,7 @@ import {
   calculateDailyTargets,
   getSlotRole,
   getSlotTeacherRole,
+  reconcileScheduleWithRoleTargets,
   isSlotLessonTime
 } from './utils/timeHelper';
 import { exportToTXT } from './utils/exportHelper';
@@ -462,53 +463,56 @@ const App: React.FC = () => {
   /**
    * Distribute flexible non-contact hours across week outside lesson times according to daily targets
    */
+  /**
+   * Distribute flexible non-contact hours across week outside lesson times according to teacher deficit
+   */
   const handleDistributeFlexibleHours = () => {
-    const targetMin = mainScheduleMinutes;
-    const currentUsedMin = (Object.values(roleUsage) as number[]).reduce((a: number, b: number) => a + b, 0);
-    const neededMin = Math.max(0, targetMin - currentUsedMin);
+    const teacherRole = getSlotTeacherRole(config.roles);
+    let updatedSchedule = [...schedule];
+    let changesMade = false;
 
-    if (neededMin === 0) {
-      showToast('Visos valandos jau suplanuotos.');
-      return;
-    }
+    // 1. Distribute missing flexible hours specifically for the teacher role
+    if (teacherRole) {
+      const teacherTarget = (teacherRole.hours * 60) + teacherRole.minutes;
+      const teacherUsed = roleUsage[teacherRole.id] || 0;
+      const teacherDeficit = Math.max(0, teacherTarget - teacherUsed);
 
-    const primaryRoleId = config.roles[0]?.id || '';
-    let remainingNeeded = neededMin;
+      if (teacherDeficit > 0) {
+        changesMade = true;
+        // Prioritize days that have contact lessons
+        const daysWithLessons = [0, 1, 2, 3, 4].filter(d => 
+          updatedSchedule[d]?.slots.some(s => s.type === 'work' && (s.workCategory === 'lesson' || isSlotLessonTime(s)))
+        );
+        const targetDays = daysWithLessons.length > 0 ? daysWithLessons : [2];
+        const perDay = Math.floor(teacherDeficit / targetDays.length);
+        let allocated = 0;
 
-    const updatedSchedule = schedule.map((day, dayIndex) => {
-      const dayTarget = dailyTargets[dayIndex];
-      const currentDayMin = day.slots.reduce((sum, slot) => {
-        if (slot.type === 'work') {
-          return sum + getSlotAccountedMinutes(slot);
-        }
-        return sum;
-      }, 0);
-
-      const dayDeficit = Math.max(0, dayTarget - currentDayMin);
-      const toAdd = Math.min(remainingNeeded, dayDeficit);
-      remainingNeeded -= toAdd;
-
-      if (toAdd > 0) {
-        return {
-          ...day,
-          slots: placeFlexibleHoursAfterLessons(day.slots, toAdd, primaryRoleId, false, config.defaultStartTime || '08:00')
-        };
+        updatedSchedule = updatedSchedule.map((day, dayIndex) => {
+          if (targetDays.includes(dayIndex)) {
+            const isLast = dayIndex === targetDays[targetDays.length - 1];
+            const toAdd = isLast ? (teacherDeficit - allocated) : perDay;
+            allocated += toAdd;
+            if (toAdd > 0) {
+              return {
+                ...day,
+                slots: placeFlexibleHoursAfterLessons(day.slots, toAdd, teacherRole.id, day.isRemote || false, config.defaultStartTime || '08:00')
+              };
+            }
+          }
+          return day;
+        });
       }
-      return day;
-    });
-
-    if (remainingNeeded > 0) {
-      const perDay = Math.ceil(remainingNeeded / 5);
-      const finalSchedule = updatedSchedule.map(day => ({
-        ...day,
-        slots: placeFlexibleHoursAfterLessons(day.slots, perDay, primaryRoleId, false, config.defaultStartTime || '08:00')
-      }));
-      setSchedule(finalSchedule);
-    } else {
-      setSchedule(updatedSchedule);
     }
 
-    showToast('Lanksčios valandos sėkmingai paskirstytos pagal dienos normas!');
+    // 2. Reconcile with role targets so every role's actual hours exactly match its target
+    updatedSchedule = reconcileScheduleWithRoleTargets(updatedSchedule, config.roles);
+    setSchedule(updatedSchedule);
+
+    if (changesMade) {
+      showToast('Lanksčios valandos sėkmingai apskaičiuotos ir paskirstytos!');
+    } else {
+      showToast('Visų pareigų valandos suderintos su nustatytais tikslais.');
+    }
   };
 
   const isFormValid = useMemo(() => {

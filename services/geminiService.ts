@@ -10,6 +10,7 @@ import {
   calculateDailyTargets,
   getSlotAccountedMinutes,
   getSlotTeacherRole,
+  reconcileScheduleWithRoleTargets,
   PEDAGOGICAL_DAILY_LIMIT_MINUTES 
 } from "../utils/timeHelper";
 
@@ -108,12 +109,52 @@ const generateSimpleSchedule = (
       }
     });
 
-    // Secondary roles allocation by days
+    // Count total contact lessons across the week for the teaching role
+    let totalWeeklyTeacherLessons = 0;
+    days.forEach((_, dayIndex) => {
+      totalWeeklyTeacherLessons += (dayLessonMap[dayIndex] || []).length;
+    });
+    const totalWeeklyLessonAccountedMin = totalWeeklyTeacherLessons * 60;
+
+    // Calculate total flexible non-contact hours across the week for the teaching role:
+    const teacherTargetMin = (teachingRole.hours * 60) + teachingRole.minutes;
+    const totalWeeklyTeacherFlexMin = Math.max(0, teacherTargetMin - totalWeeklyLessonAccountedMin);
+
+    // Determine which days should have teacher flexible hours:
+    // First priority: Days that have contact lessons
+    // Second priority: Preferred days from schedulePreference
+    // Fallback: Wednesday (day 2)
+    const daysWithLessons = [0, 1, 2, 3, 4].filter(d => (dayLessonMap[d] || []).length > 0);
+    const teacherTargetDays = daysWithLessons.length > 0
+      ? daysWithLessons
+      : (teachingRole.schedulePreference?.days && teachingRole.schedulePreference.days.length > 0)
+        ? teachingRole.schedulePreference.days
+        : [2];
+
+    const teacherFlexPerDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+    if (totalWeeklyTeacherFlexMin > 0 && teacherTargetDays.length > 0) {
+      const perDayFlex = Math.floor(totalWeeklyTeacherFlexMin / teacherTargetDays.length);
+      let allocatedFlex = 0;
+      teacherTargetDays.forEach((d, idx) => {
+        if (d >= 0 && d <= 4) {
+          const toAdd = idx === teacherTargetDays.length - 1 
+            ? (totalWeeklyTeacherFlexMin - allocatedFlex) 
+            : perDayFlex;
+          allocatedFlex += toAdd;
+          teacherFlexPerDay[d] = toAdd;
+        }
+      });
+    }
+
+    // Other non-teacher secondary roles allocation by days
     const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number }[]> = {
       0: [], 1: [], 2: [], 3: [], 4: []
     };
 
     sortedRoles.slice(1).forEach(secRole => {
+      // If this secondary role is the teaching role, it is handled via contact lessons + teacherFlexPerDay
+      if (secRole.id === lessonRoleId) return;
+
       const secTotalMin = (secRole.hours * 60) + secRole.minutes;
       if (secTotalMin <= 0) return;
 
@@ -123,7 +164,6 @@ const generateSimpleSchedule = (
       if (pref?.days && pref.days.length > 0) {
         targetDays = pref.days;
       } else if (secTotalMin <= 240) {
-        // If small duty and no days chosen, default to Wednesday (day 2)
         targetDays = [2];
       } else {
         targetDays = [0, 1, 2, 3, 4];
@@ -145,11 +185,12 @@ const generateSimpleSchedule = (
       });
     });
 
-    return days.map((day, dayIndex) => {
+    const rawTeacherSchedule = days.map((day, dayIndex) => {
       const slots: DaySlot[] = [];
       const dayTarget = dailyTargets[dayIndex];
       const lessonNumbers = dayLessonMap[dayIndex] || [];
       const secRolesForDay = secRolesPerDay[dayIndex] || [];
+      const teacherFlexMinutes = teacherFlexPerDay[dayIndex] || 0;
 
       // CASE A: Day has contact lessons
       if (lessonNumbers.length > 0) {
@@ -157,8 +198,8 @@ const generateSimpleSchedule = (
         const firstBell = STANDARD_LESSON_BELLS.find(b => b.number === firstLessonNum);
         const firstBellStartMin = firstBell ? timeToMinutes(firstBell.startTime) : startMin;
 
-        // If the day starts before the first lesson (e.g. 08:00 vs lesson 1 at 08:30 or lesson 2 at 09:25)
-        // ALWAYS create a morning slot starting strictly at startMin (08:00)!
+        // If the day starts before the first lesson (e.g. 08:00 vs lesson 1 at 08:30)
+        // Primary role (or morning prep) works from startMin
         if (firstBellStartMin > startMin) {
           slots.push({
             id: `slot-${dayIndex}-morn-prep`,
@@ -196,7 +237,6 @@ const generateSimpleSchedule = (
         let afternoonStartMin = lastLessonEndMin;
 
         if (hasLunch && lunchDuration > 0 && dayTarget >= 240) {
-          // Place lunch break around targetLunchStartMin, keep exact time if no conflict with lessons
           let lunchStartM = targetLunchStartMin;
           let lunchEndM = targetLunchEndMin;
 
@@ -220,24 +260,45 @@ const generateSimpleSchedule = (
           afternoonStartMin = lunchEndM;
         }
 
-        // Place secondary roles on this day
         let currentClock = afternoonStartMin;
-        secRolesForDay.forEach((sec, sIdx) => {
-          let secMinToSchedule = sec.minutes;
-          if (sec.roleId === lessonRoleId && lessonNumbers.length > 0) {
-            const accountedLessonMin = lessonNumbers.length * 60;
-            secMinToSchedule = Math.max(0, sec.minutes - accountedLessonMin);
+
+        // Place Teacher Flexible Hours for this day (exact calculated minutes)
+        if (teacherFlexMinutes > 0) {
+          let flexStart = currentClock;
+          let flexEnd = flexStart + teacherFlexMinutes;
+
+          const pref = teachingRole.schedulePreference;
+          if (pref?.mode === 'custom_times' && pref.startTime && pref.days?.includes(dayIndex)) {
+            flexStart = timeToMinutes(pref.startTime);
+            flexEnd = flexStart + teacherFlexMinutes;
           }
 
-          if (secMinToSchedule > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-teach-flex`,
+            startTime: minutesToTime(flexStart),
+            endTime: minutesToTime(flexEnd),
+            type: 'work',
+            roleId: lessonRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+
+          if (flexEnd > currentClock) {
+            currentClock = flexEnd;
+          }
+        }
+
+        // Place non-teacher secondary roles on this day
+        secRolesForDay.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
             let slotStart = currentClock;
-            let slotEnd = currentClock + secMinToSchedule;
+            let slotEnd = currentClock + sec.minutes;
 
             const targetRole = roles.find(r => r.id === sec.roleId);
             const pref = targetRole?.schedulePreference;
             if (pref?.mode === 'custom_times' && pref.startTime) {
               slotStart = timeToMinutes(pref.startTime);
-              slotEnd = slotStart + secMinToSchedule;
+              slotEnd = slotStart + sec.minutes;
             }
 
             slots.push({
@@ -247,7 +308,7 @@ const generateSimpleSchedule = (
               type: 'work',
               roleId: sec.roleId,
               isRemote: false,
-              workCategory: sec.roleId === lessonRoleId ? 'flexible' : 'general'
+              workCategory: 'general'
             });
 
             if (slotEnd > currentClock) {
@@ -256,7 +317,7 @@ const generateSimpleSchedule = (
           }
         });
 
-        // Place remaining flexible / work hours for the day so that dayTarget is reached
+        // Place remaining flexible / work hours for primary role so that dayTarget is reached
         const workedSoFar = slots.reduce((total, s) => {
           if (s.type === 'work') return total + getSlotAccountedMinutes(s);
           return total;
@@ -285,164 +346,121 @@ const generateSimpleSchedule = (
 
       // CASE B: Day has ZERO contact lessons
       if (hasLunch && lunchDuration > 0 && dayTarget >= 240) {
-        // Check if any secondary role prefers to work in the morning (starts before lunch)
-        const morningSec = secRolesForDay.find(sec => {
-          const r = roles.find(role => role.id === sec.roleId);
-          const pref = r?.schedulePreference;
-          return pref?.mode === 'custom_times' && pref.startTime && timeToMinutes(pref.startTime) < targetLunchStartMin;
+        // Standard morning work for primary role
+        const morningDur = Math.min(targetLunchStartMin - startMin, dayTarget);
+        if (morningDur > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-morn`,
+            startTime: minutesToTime(startMin),
+            endTime: minutesToTime(startMin + morningDur),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
+          });
+        }
+
+        // Lunch break strictly at target lunch times
+        slots.push({
+          id: `slot-${dayIndex}-br`,
+          startTime: minutesToTime(targetLunchStartMin),
+          endTime: minutesToTime(targetLunchEndMin),
+          type: 'break',
+          roleId: '',
+          isRemote: false
         });
 
-        if (morningSec && morningSec.minutes > 0) {
-          const r = roles.find(role => role.id === morningSec.roleId);
-          const pref = r?.schedulePreference;
-          const secStart = timeToMinutes(pref?.startTime || '08:00');
-          const secDur = morningSec.minutes;
-          const secEnd = secStart + secDur;
+        let currentClock = targetLunchEndMin;
 
-          // If there is morning work before secondary role starts
-          if (secStart > startMin) {
-            slots.push({
-              id: `slot-${dayIndex}-pre-sec`,
-              startTime: minutesToTime(startMin),
-              endTime: minutesToTime(secStart),
-              type: 'work',
-              roleId: primaryRoleId,
-              isRemote: false,
-              workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
-            });
+        // Place Teacher Flexible Hours if allocated to this day
+        if (teacherFlexMinutes > 0) {
+          let flexStart = currentClock;
+          let flexEnd = flexStart + teacherFlexMinutes;
+
+          const pref = teachingRole.schedulePreference;
+          if (pref?.mode === 'custom_times' && pref.startTime && (pref.days?.includes(dayIndex) || !pref.days || pref.days.length === 0)) {
+            flexStart = timeToMinutes(pref.startTime);
+            flexEnd = flexStart + teacherFlexMinutes;
           }
 
-          // Secondary role slot (duration strictly matches entered minutes)
           slots.push({
-            id: `slot-${dayIndex}-sec-morn`,
-            startTime: minutesToTime(secStart),
-            endTime: minutesToTime(secEnd),
+            id: `slot-${dayIndex}-teach-flex`,
+            startTime: minutesToTime(flexStart),
+            endTime: minutesToTime(flexEnd),
             type: 'work',
-            roleId: morningSec.roleId,
+            roleId: lessonRoleId,
             isRemote: false,
-            workCategory: morningSec.roleId === lessonRoleId ? 'flexible' : 'general'
+            workCategory: 'flexible'
           });
 
-          // Work between secondary role end and lunch
-          if (secEnd < targetLunchStartMin) {
-            slots.push({
-              id: `slot-${dayIndex}-post-sec-morn`,
-              startTime: minutesToTime(secEnd),
-              endTime: minutesToTime(targetLunchStartMin),
-              type: 'work',
-              roleId: primaryRoleId,
-              isRemote: false,
-              workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
-            });
+          if (flexEnd > currentClock) {
+            currentClock = flexEnd;
           }
+        }
 
-          // Lunch break
-          slots.push({
-            id: `slot-${dayIndex}-br`,
-            startTime: minutesToTime(targetLunchStartMin),
-            endTime: minutesToTime(targetLunchEndMin),
-            type: 'break',
-            roleId: '',
-            isRemote: false
-          });
+        // Schedule non-teacher secondary roles with exact entered minutes
+        secRolesForDay.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            let slotStart = currentClock;
+            let slotEnd = currentClock + sec.minutes;
 
-          // Afternoon work to meet full dayTarget
-          const workedSoFar = slots.reduce((total, s) => {
-            if (s.type === 'work') return total + getSlotAccountedMinutes(s);
-            return total;
-          }, 0);
-
-          const afternoonPrimaryNeeded = Math.max(0, dayTarget - workedSoFar);
-          if (afternoonPrimaryNeeded > 0) {
-            slots.push({
-              id: `slot-${dayIndex}-aft`,
-              startTime: minutesToTime(targetLunchEndMin),
-              endTime: minutesToTime(targetLunchEndMin + afternoonPrimaryNeeded),
-              type: 'work',
-              roleId: primaryRoleId,
-              isRemote: false,
-              workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
-            });
-          }
-        } else {
-          // Standard day: Morning work for primary role
-          const morningDur = Math.min(targetLunchStartMin - startMin, dayTarget);
-          if (morningDur > 0) {
-            slots.push({
-              id: `slot-${dayIndex}-morn`,
-              startTime: minutesToTime(startMin),
-              endTime: minutesToTime(startMin + morningDur),
-              type: 'work',
-              roleId: primaryRoleId,
-              isRemote: false,
-              workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
-            });
-          }
-
-          // Lunch break strictly at target lunch times
-          slots.push({
-            id: `slot-${dayIndex}-br`,
-            startTime: minutesToTime(targetLunchStartMin),
-            endTime: minutesToTime(targetLunchEndMin),
-            type: 'break',
-            roleId: '',
-            isRemote: false
-          });
-
-          // Afternoon work
-          let currentClock = targetLunchEndMin;
-
-          // Schedule secondary roles with exact entered minutes
-          secRolesForDay.forEach((sec, sIdx) => {
-            if (sec.minutes > 0) {
-              let slotStart = currentClock;
-              let slotEnd = currentClock + sec.minutes;
-
-              const targetRole = roles.find(r => r.id === sec.roleId);
-              const pref = targetRole?.schedulePreference;
-              if (pref?.mode === 'custom_times' && pref.startTime) {
-                slotStart = timeToMinutes(pref.startTime);
-                slotEnd = slotStart + sec.minutes;
-              }
-
-              slots.push({
-                id: `slot-${dayIndex}-sec-${sIdx}`,
-                startTime: minutesToTime(slotStart),
-                endTime: minutesToTime(slotEnd),
-                type: 'work',
-                roleId: sec.roleId,
-                isRemote: false,
-                workCategory: sec.roleId === lessonRoleId ? 'flexible' : 'general'
-              });
-
-              if (slotEnd > currentClock) {
-                currentClock = slotEnd;
-              }
+            const targetRole = roles.find(r => r.id === sec.roleId);
+            const pref = targetRole?.schedulePreference;
+            if (pref?.mode === 'custom_times' && pref.startTime) {
+              slotStart = timeToMinutes(pref.startTime);
+              slotEnd = slotStart + sec.minutes;
             }
-          });
 
-          // Schedule remaining primary role hours
-          const workedSoFar = slots.reduce((total, s) => {
-            if (s.type === 'work') return total + getSlotAccountedMinutes(s);
-            return total;
-          }, 0);
-
-          const afternoonPrimaryNeeded = Math.max(0, dayTarget - workedSoFar);
-          if (afternoonPrimaryNeeded > 0) {
             slots.push({
-              id: `slot-${dayIndex}-aft`,
-              startTime: minutesToTime(currentClock),
-              endTime: minutesToTime(currentClock + afternoonPrimaryNeeded),
+              id: `slot-${dayIndex}-sec-${sIdx}`,
+              startTime: minutesToTime(slotStart),
+              endTime: minutesToTime(slotEnd),
               type: 'work',
-              roleId: primaryRoleId,
+              roleId: sec.roleId,
               isRemote: false,
-              workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
+              workCategory: 'general'
             });
+
+            if (slotEnd > currentClock) {
+              currentClock = slotEnd;
+            }
           }
+        });
+
+        // Schedule remaining primary role hours
+        const workedSoFar = slots.reduce((total, s) => {
+          if (s.type === 'work') return total + getSlotAccountedMinutes(s);
+          return total;
+        }, 0);
+
+        const afternoonPrimaryNeeded = Math.max(0, dayTarget - workedSoFar);
+        if (afternoonPrimaryNeeded > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-aft`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + afternoonPrimaryNeeded),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: primaryRoleId === lessonRoleId ? 'flexible' : 'general'
+          });
         }
       } else {
         // No lunch break: continuous work starting strictly at startTime (08:00)
         let currentClock = startMin;
+
+        if (teacherFlexMinutes > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-teach-flex`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + teacherFlexMinutes),
+            type: 'work',
+            roleId: lessonRoleId,
+            isRemote: false,
+            workCategory: 'flexible'
+          });
+          currentClock += teacherFlexMinutes;
+        }
 
         secRolesForDay.forEach((sec, sIdx) => {
           if (sec.minutes > 0) {
@@ -463,7 +481,7 @@ const generateSimpleSchedule = (
               type: 'work',
               roleId: sec.roleId,
               isRemote: false,
-              workCategory: sec.roleId === lessonRoleId ? 'flexible' : 'general'
+              workCategory: 'general'
             });
 
             if (slotEnd > currentClock) {
@@ -498,6 +516,8 @@ const generateSimpleSchedule = (
         slots: sortSlots(slots)
       };
     });
+
+    return reconcileScheduleWithRoleTargets(rawTeacherSchedule, roles);
   }
 
   // 2. STANDARD NON-TEACHER SCHEDULE (strictly starts at startTime = 08:00, respects day targets)
@@ -506,7 +526,7 @@ const generateSimpleSchedule = (
     remaining: (r.hours * 60) + r.minutes
   }));
 
-  return days.map((day, dayIndex) => {
+  const rawStandardSchedule = days.map((day, dayIndex) => {
     const slots: DaySlot[] = [];
     const dayTarget = dailyTargets[dayIndex];
     let currentClock = startMin;
@@ -599,5 +619,7 @@ const generateSimpleSchedule = (
       slots: sortSlots(slots)
     };
   });
+
+  return reconcileScheduleWithRoleTargets(rawStandardSchedule, roles);
 };
 

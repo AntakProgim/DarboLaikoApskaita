@@ -1,4 +1,4 @@
-import { DaySlot, JobRole } from '../types';
+import { DaySlot, JobRole, DaySchedule } from '../types';
 
 export const PEDAGOGICAL_DAILY_LIMIT_MINUTES = 10 * 60 + 18; // 618 minutes (10 val. 18 min.)
 export const TOTAL_DAILY_LIMIT_MINUTES = 12 * 60; // 720 minutes (12 val.)

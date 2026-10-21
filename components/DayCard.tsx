@@ -151,11 +151,27 @@ export const DayCard: React.FC<DayCardProps> = ({
   };
 
   /**
-   * Add flexible hours outside lesson hours (e.g. after lessons)
+   * Add flexible hours outside lesson hours (e.g. after lessons).
+   * Intelligently calculates the exact remaining flexible hours needed to reach the teacher's weekly target.
    */
   const handleAddFlexibleHours = () => {
     const teacherRole = getSlotTeacherRole(roles);
-    const newSlots = placeFlexibleHoursAfterLessons(day.slots, 60, teacherRole?.id || roles[0]?.id || '', day.isRemote || false);
+    const targetRoleId = teacherRole?.id || roles[0]?.id || '';
+    const targetRole = roles.find(r => r.id === targetRoleId);
+    let minutesToAdd = 60;
+
+    if (targetRole) {
+      const targetMin = (targetRole.hours * 60) + targetRole.minutes;
+      const usedMin = roleUsage[targetRoleId] || 0;
+      const deficit = targetMin - usedMin;
+      if (deficit > 0) {
+        minutesToAdd = deficit;
+      } else {
+        minutesToAdd = 30; // default chunk if target already matched
+      }
+    }
+
+    const newSlots = placeFlexibleHoursAfterLessons(day.slots, minutesToAdd, targetRoleId, day.isRemote || false, "08:00");
     onChange({ ...day, slots: newSlots });
   };
 
@@ -662,10 +678,23 @@ export const DayCard: React.FC<DayCardProps> = ({
             {roles.map(role => {
               const mins = dailyRoleStats[role.id];
               if (!mins) return null;
+              const isTeacherRole = (role.roleCategory === 'teacher' || (role.title || '').toLowerCase().includes('mokyt'));
+              const dayLessons = day.slots.filter(s => s.type === 'work' && (s.workCategory === 'lesson' || isSlotLessonTime(s)) && getSlotRole(s, roles)?.id === role.id);
+              const dayFlex = day.slots.filter(s => s.type === 'work' && (s.workCategory === 'flexible' || (isTeacherRole && s.workCategory !== 'lesson' && !isSlotLessonTime(s))) && getSlotRole(s, roles)?.id === role.id);
+              const flexMins = dayFlex.reduce((sum, s) => sum + calculateSlotMinutes(s.startTime, s.endTime), 0);
+
               return (
-                <div key={role.id} className="flex justify-between items-center text-xs">
-                  <span className="text-gray-600 font-medium truncate max-w-[150px]">{role.title}</span>
-                  <span className="font-mono text-gray-800">{formatDuration(mins)}</span>
+                <div key={role.id} className="space-y-0.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-700 font-medium truncate max-w-[150px]">{role.title}</span>
+                    <span className="font-mono text-gray-800 font-semibold">{formatDuration(mins)}</span>
+                  </div>
+                  {isTeacherRole && (dayLessons.length > 0 || flexMins > 0) && (
+                    <div className="flex justify-between text-[10px] text-gray-500 pl-1 font-mono">
+                      <span>Pamokos: {dayLessons.length} ({dayLessons.length} val.)</span>
+                      <span>Lanksčios: {formatDuration(flexMins)}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
