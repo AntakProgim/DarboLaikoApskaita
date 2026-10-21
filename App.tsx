@@ -19,7 +19,7 @@ import {
   reconcileScheduleWithRoleTargets,
   isSlotLessonTime
 } from './utils/timeHelper';
-import { exportToTXT } from './utils/exportHelper';
+import { exportToTXT, exportToPDF } from './utils/exportHelper';
 import { 
   Sparkles, 
   Loader2, 
@@ -40,7 +40,8 @@ import {
   UserCheck,
   Calendar,
   Settings2,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -73,6 +74,7 @@ const App: React.FC = () => {
   const [hasAttemptedGenerate, setHasAttemptedGenerate] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showDistributionModal, setShowDistributionModal] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1313,7 +1315,7 @@ const App: React.FC = () => {
               <button
                 onClick={handleGenerate}
                 disabled={loading || !isFormValid}
-                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md hover:shadow-lg cursor-pointer"
               >
                 {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
                 {loading ? 'Generuojama...' : 'Pasirinkti dienas ir Generuoti Grafiką'}
@@ -1375,6 +1377,27 @@ const App: React.FC = () => {
               >
                 <Trash2 size={13}/> 
                 <span>Išvalyti grafiką</span>
+              </button>
+
+              <button 
+                onClick={async () => {
+                  setIsExportingPDF(true);
+                  try {
+                    await exportToPDF(schedule, config);
+                    showToast('PDF grafikas sėkmingai sugeneruotas!');
+                  } catch (e) {
+                    console.error('PDF error', e);
+                    showToast('Nepavyko sugeneruoti PDF.');
+                  } finally {
+                    setIsExportingPDF(false);
+                  }
+                }}
+                disabled={isExportingPDF}
+                className="text-xs flex items-center gap-1.5 text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 px-3 py-1.5 rounded-lg border border-rose-700 transition-all font-bold shadow-2xs cursor-pointer disabled:opacity-60"
+                title="Atsisiųsti oficialų PDF dokumentą su pareigų suvestine"
+              >
+                {isExportingPDF ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13}/>}
+                <span>PDF</span>
               </button>
 
               <button 

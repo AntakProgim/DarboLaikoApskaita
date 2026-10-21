@@ -225,24 +225,25 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-2xl w-full my-auto overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white p-4 sm:p-5 relative shrink-0">
+        <div className="bg-indigo-700 bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-800 text-white p-5 sm:p-6 relative shrink-0 shadow-sm border-b border-indigo-800">
           <button 
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors"
+            className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors cursor-pointer"
+            title="Uždaryti"
           >
             <X size={18} />
           </button>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="p-1.5 bg-white/20 rounded-lg backdrop-blur-xs">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="p-1.5 bg-white/20 rounded-lg backdrop-blur-xs text-white">
               <Calendar size={18} />
             </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-blue-100">Grafiko sudarymas</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-200">Grafiko sudarymas</span>
           </div>
-          <h2 className="text-lg sm:text-xl font-bold">
+          <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
             Kuriomis dienomis išdėlioti darbo laiką?
           </h2>
-          <p className="text-xs text-blue-100 mt-1">
+          <p className="text-xs text-blue-100 mt-1 font-medium">
             Nurodykite, kuriomis savaitės dienomis dirbama pagal kiekvienas pareigas ir kaip apskaičiuoti lanksčias valandas.
           </p>
         </div>
@@ -527,11 +528,11 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
         </div>
 
         {/* Footer Actions */}
-        <div className="bg-gray-50 border-t border-gray-200 p-4 px-5 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="bg-gray-100/90 border-t border-gray-200 p-4 px-5 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors"
+            className="px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition-colors cursor-pointer shadow-2xs"
           >
             Atšaukti
           </button>
@@ -539,11 +540,11 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
           <button
             type="button"
             onClick={handleSaveAndGenerate}
-            className="px-5 py-2.5 text-sm font-bold text-white bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-md transition-all flex items-center gap-2"
+            className="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-indigo-500"
           >
-            <Sparkles size={16} />
-            <span>Išdėlioti darbo laikus ir atidaryti grafiką</span>
-            <ChevronRight size={16} />
+            <Sparkles size={16} className="text-amber-300 shrink-0" />
+            <span className="text-white font-bold">Išdėlioti darbo laikus ir atidaryti grafiką</span>
+            <ChevronRight size={16} className="text-white shrink-0" />
           </button>
         </div>
       </div>

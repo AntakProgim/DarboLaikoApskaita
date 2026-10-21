@@ -1,16 +1,17 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { DaySchedule, WorkConfig } from '../types';
 import { 
   calculateDayNetMinutes, 
   calculateDayRemoteMinutes, 
   calculateSlotMinutes, 
-  getSlotAccountedMinutes,
-  getSlotRole,
-  getSlotTeacherRole,
-  isSlotLessonTime
+  getSlotAccountedMinutes, 
+  getSlotRole, 
+  getSlotTeacherRole, 
+  isSlotLessonTime 
 } from '../utils/timeHelper';
-import { exportToTXT } from '../utils/exportHelper';
-import { Download, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info, Home } from 'lucide-react';
+import { exportToTXT, exportToPDF } from '../utils/exportHelper';
+import { WorkloadChart } from './WorkloadChart';
+import { Download, FileText, Loader2, User, Briefcase, Clock, AlertCircle, CheckCircle, Pencil, Building2, BookOpen, Sparkles, Coffee, Info, Home } from 'lucide-react';
 
 interface SummaryProps {
   schedule: DaySchedule[];
@@ -19,6 +20,7 @@ interface SummaryProps {
 }
 
 export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpdate }) => {
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   // Internal worked minutes (excluding breaks). 1 pamoka = 60 min. darbo laiko apskaitoje
   const totalInternalMinutes = schedule.reduce((acc, day) => {
     return acc + day.slots.reduce((dTotal, s) => {
@@ -140,14 +142,33 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
             Dienos normos: maks. 10 val. 18 min. pedagoginio darbo | maks. 12 val. bendro darbo | pietų laikas neišsiskaičiuoja
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={async () => {
+              setIsExportingPDF(true);
+              try {
+                await exportToPDF(schedule, config);
+              } catch (e) {
+                console.error("PDF generation error", e);
+              } finally {
+                setIsExportingPDF(false);
+              }
+            }}
+            disabled={isExportingPDF}
+            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-4 py-2 rounded-xl transition-all text-sm font-bold shrink-0 shadow-xs hover:shadow-md cursor-pointer disabled:opacity-60"
+            title="Atsisiųsti oficialų PDF dokumentą su pareigų suvestine ir parašais"
+          >
+            {isExportingPDF ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+            <span>Atsisiųsti PDF</span>
+          </button>
+
           <button
             onClick={() => exportToTXT(schedule, config)}
-            className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium shrink-0"
+            className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-3 py-2 rounded-xl transition-colors text-xs font-semibold shrink-0 cursor-pointer"
             title="Atsisiųsti .txt grafiko kopiją"
           >
-            <Download size={16} />
-            <span className="hidden sm:inline">Atsisiųsti TXT</span>
+            <Download size={14} />
+            <span className="hidden sm:inline">TXT</span>
           </button>
         </div>
       </div>
@@ -233,6 +254,13 @@ export const Summary: React.FC<SummaryProps> = ({ schedule, config, onConfigUpda
           </div>
         </div>
       </div>
+
+      {/* Visual Workload Distribution Bar Chart (Recharts) */}
+      <WorkloadChart 
+        schedule={schedule}
+        roles={config.roles}
+        shortFriday={config.shortFriday}
+      />
 
       {/* Role Breakdown Table */}
       <div className="bg-gray-50/50 rounded-xl border border-gray-200 overflow-hidden">
