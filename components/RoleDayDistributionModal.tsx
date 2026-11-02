@@ -19,7 +19,9 @@ import {
   GraduationCap, 
   BookOpen, 
   ChevronRight,
-  Info
+  Info,
+  Sun,
+  Sunset
 } from 'lucide-react';
 
 interface RoleDayDistributionModalProps {
@@ -142,6 +144,20 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
     }));
   };
 
+  const handlePlacementChange = (roleId: string, position: 'before_primary' | 'after_primary') => {
+    setRolesState(prev => prev.map(r => {
+      if (r.id !== roleId) return r;
+      return {
+        ...r,
+        schedulePreference: {
+          ...r.schedulePreference!,
+          placementPosition: position,
+          mode: position === 'before_primary' ? 'custom_times' : (r.schedulePreference?.mode || 'auto_after_lessons')
+        }
+      };
+    }));
+  };
+
   // Calculate day-by-day preview
   const preview = useMemo(() => {
     const totalWeeklyTarget = rolesState.reduce((sum, r) => sum + (r.hours * 60) + r.minutes, 0);
@@ -206,14 +222,27 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
       const totalDayMinutes = activeRolesOnDay.reduce((sum, item) => sum + item.targetMinutes, 0);
       const startMin = timeToMinutes(config.defaultStartTime || '08:00');
       const lunchDur = config.hasLunch ? (config.lunchDuration || 30) : 0;
-      const estimatedEndMin = startMin + totalDayMinutes + lunchDur;
+
+      // Check if any secondary role runs before primary in morning
+      const secBeforeMinutes = activeRolesOnDay
+        .filter(item => item.role.id !== rolesState[0]?.id && item.role.schedulePreference?.placementPosition === 'before_primary')
+        .reduce((sum, item) => sum + item.targetMinutes, 0);
+
+      // If teacher has lessons starting at 08:00 and secondary role is before primary, start earlier
+      const hasLessonsOnDay = (config.weeklyLessons?.[dayOffset] || []).length > 0;
+      const dayStartMin = (hasLessonsOnDay && secBeforeMinutes > 0) 
+        ? Math.max(0, startMin - secBeforeMinutes) 
+        : startMin;
+      const estimatedEndMin = dayStartMin + totalDayMinutes + (totalDayMinutes >= 240 ? lunchDur : 0);
 
       return {
         day,
         activeRolesOnDay,
         totalDayMinutes,
         dayTarget: dayTargets[dayOffset],
+        dayStartTime: minutesToTime(dayStartMin),
         estimatedEndTime: minutesToTime(estimatedEndMin),
+        secBeforeMinutes,
         isOverLimit: totalDayMinutes > 618 // > 10 val. 18 min.
       };
     });
@@ -464,6 +493,63 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
                       )}
                     </div>
                   )}
+
+                  {/* Secondary Role Placement Position Selector (Prieš pagrindinį ryte vs Po pagrindinio popiet) */}
+                  {!isPrimary && (
+                    <div className="mt-3 pt-2.5 border-t border-gray-200/80 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <label className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                          <Clock size={13} className="text-indigo-600" />
+                          <span>Darbo laiko išdėstymas dienoje:</span>
+                        </label>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                          {role.isPedagogical === false ? 'Nepedagoginės pareigos' : 'Antrinės pareigos'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handlePlacementChange(role.id, 'before_primary')}
+                          className={`p-2.5 rounded-lg border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                            pref.placementPosition === 'before_primary'
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-2xs font-semibold'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Sun size={15} className={`shrink-0 mt-0.5 ${pref.placementPosition === 'before_primary' ? 'text-amber-200' : 'text-amber-500'}`} />
+                          <div>
+                            <div className="font-bold flex items-center gap-1">
+                              <span>Prieš pagrindinį darbą (ryte)</span>
+                            </div>
+                            <div className={`text-[10px] mt-0.5 leading-snug ${pref.placementPosition === 'before_primary' ? 'text-amber-100' : 'text-gray-500'}`}>
+                              Dirbama iš ryto iki pagrindinio darbo ar pamokų pradžios
+                            </div>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePlacementChange(role.id, 'after_primary')}
+                          className={`p-2.5 rounded-lg border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                            pref.placementPosition !== 'before_primary'
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Sunset size={15} className={`shrink-0 mt-0.5 ${pref.placementPosition !== 'before_primary' ? 'text-indigo-200' : 'text-indigo-500'}`} />
+                          <div>
+                            <div className="font-bold flex items-center gap-1">
+                              <span>Po pagrindinio darbo (popiet)</span>
+                            </div>
+                            <div className={`text-[10px] mt-0.5 leading-snug ${pref.placementPosition !== 'before_primary' ? 'text-indigo-100' : 'text-gray-500'}`}>
+                              Dirbama popiet, baigus pagrindines pareigas ar pamokas
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -533,7 +619,7 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-              {preview.dayBreakdowns.map(({ day, activeRolesOnDay, totalDayMinutes, estimatedEndTime, isOverLimit }) => (
+              {preview.dayBreakdowns.map(({ day, activeRolesOnDay, totalDayMinutes, dayStartTime, estimatedEndTime, isOverLimit }) => (
                 <div 
                   key={day.offset}
                   className={`p-2.5 rounded-lg border text-center transition-all flex flex-col justify-between ${
@@ -553,19 +639,26 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
 
                   {totalDayMinutes > 0 ? (
                     <div className="space-y-1 pt-1.5 border-t border-gray-100">
-                      <div className="text-[10px] text-gray-600">
-                        Iki: <b className="text-gray-900 font-mono">{estimatedEndTime}</b>
+                      <div className="text-[10px] text-gray-600 font-mono">
+                        <span>{dayStartTime} – <b className="text-gray-900">{estimatedEndTime}</b></span>
                       </div>
                       <div className="flex flex-wrap gap-0.5 justify-center">
-                        {activeRolesOnDay.map(({ role, targetMinutes }, i) => (
-                          <span 
-                            key={i} 
-                            className="text-[9px] bg-blue-50 text-blue-800 px-1 py-0.2 rounded border border-blue-100 font-medium truncate max-w-full"
-                            title={`${role.title}: ${formatDuration(targetMinutes)}`}
-                          >
-                            {role.title.slice(0, 8)}: {formatDuration(targetMinutes)}
-                          </span>
-                        ))}
+                        {activeRolesOnDay.map(({ role, targetMinutes }, i) => {
+                          const isSecBefore = role.id !== rolesState[0]?.id && role.schedulePreference?.placementPosition === 'before_primary';
+                          return (
+                            <span 
+                              key={i} 
+                              className={`text-[9px] px-1 py-0.2 rounded border font-medium truncate max-w-full ${
+                                isSecBefore
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold'
+                                  : 'bg-blue-50 text-blue-800 border-blue-100'
+                              }`}
+                              title={`${role.title}: ${formatDuration(targetMinutes)} ${isSecBefore ? '(Ryte prieš pagrindinį darbą)' : ''}`}
+                            >
+                              {isSecBefore ? '🌅 ' : ''}{role.title.slice(0, 8)}: {formatDuration(targetMinutes)}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (

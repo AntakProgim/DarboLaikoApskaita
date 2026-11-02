@@ -34,6 +34,7 @@ export interface RoleSchedulePreference {
   days?: number[]; // [0, 1, 2, 3, 4] (Pirmadienis..Penktadienis)
   startTime?: string; // "14:00"
   endTime?: string;   // "16:00"
+  placementPosition?: 'after_primary' | 'before_primary' | 'custom_time'; // 'before_primary' (ryte prieš pagrindinį darbą) | 'after_primary' (popiet po pagrindinio darbo)
   flexibleDays?: number[]; // Pasirinktos dienos lanksčioms valandoms
   flexibleDistribution?: 'after_lessons' | 'equal_days' | 'specific_day';
 }

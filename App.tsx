@@ -41,7 +41,9 @@ import {
   Calendar,
   Settings2,
   Check,
-  FileText
+  FileText,
+  Sun,
+  Sunset
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -908,6 +910,41 @@ const App: React.FC = () => {
                         </div>
                       )}
 
+                      {/* Role Pedagogical Nature Toggle */}
+                      <div className="flex flex-wrap items-center justify-between gap-1 mt-2 pt-1.5 border-t border-gray-100 text-[10px]">
+                        <span className="text-gray-500 font-medium flex items-center gap-1">
+                          Pareigų pobūdis:
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleRoleChange(role.id, 'isPedagogical', true)}
+                            className={`px-2 py-0.5 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
+                              role.isPedagogical !== false
+                                ? 'bg-sky-100 text-sky-800 border border-sky-300 font-bold'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                            title="Pedagoginis darbas (mokytojas, auklėtojas, švietimo pagalbos specialistas)"
+                          >
+                            <GraduationCap size={11} />
+                            <span>Pedagoginis</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRoleChange(role.id, 'isPedagogical', false)}
+                            className={`px-2 py-0.5 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
+                              role.isPedagogical === false
+                                ? 'bg-indigo-700 text-white border border-indigo-700 shadow-2xs font-bold'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                            title="Nepedagoginis darbas (administracinis, ūkio, IT, pagalbinis, aptarnaujantis personalas)"
+                          >
+                            <Briefcase size={11} />
+                            <span>Nepedagoginis</span>
+                          </button>
+                        </div>
+                      </div>
+
                       {/* USER SPECIFIED SCHEDULE FOR SMALLER / SECONDARY ROLES */}
                       {!isPrimary && (
                         <div className="mt-2.5 pt-2 border-t border-gray-200/70 bg-gray-50/70 p-2.5 rounded-lg space-y-2 text-xs">
@@ -921,89 +958,131 @@ const App: React.FC = () => {
                             </span>
                           </div>
 
-                          {/* Mode Selector */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleRolePreferenceChange(role.id, { mode: 'custom_times' })}
-                              className={`py-1 px-2 rounded-md border text-[11px] font-medium transition-colors text-left flex items-center gap-1.5 ${
-                                pref.mode === 'custom_times'
-                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              <Clock size={12} />
-                              <span>Nurodysiu konkrečius laikus</span>
-                            </button>
+                          {/* Secondary Role Placement Selection */}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-semibold text-gray-700 flex items-center justify-between">
+                              <span>Kada išdėstyti šias pareigas dienoje:</span>
+                              <span className="text-[10px] text-gray-500 font-normal">
+                                {role.isPedagogical === false ? 'Nepedagoginis darbas' : 'Antrinis darbas'}
+                              </span>
+                            </label>
 
-                            <button
-                              type="button"
-                              onClick={() => handleRolePreferenceChange(role.id, { mode: 'auto_after_lessons' })}
-                              className={`py-1 px-2 rounded-md border text-[11px] font-medium transition-colors text-left flex items-center gap-1.5 ${
-                                pref.mode === 'auto_after_lessons'
-                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              <Sparkles size={12} />
-                              <span>Sudėlioti po pamokų</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRolePreferenceChange(role.id, { mode: 'manual_in_schedule' })}
-                              className={`py-1 px-2 rounded-md border text-[11px] font-medium transition-colors text-left flex items-center gap-1.5 ${
-                                pref.mode === 'manual_in_schedule'
-                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
-                              }`}
-                            >
-                              <Briefcase size={12} />
-                              <span>Susidėliosiu pats kortelėse</span>
-                            </button>
-                          </div>
-
-                          {/* Custom Times Configuration: Days of Week + Time Range */}
-                          {pref.mode === 'custom_times' && (
-                            <div className="bg-white p-2.5 rounded-md border border-indigo-200 space-y-2 animate-fade-in">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-semibold text-gray-600 block">Savaitės dienos:</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRolePreferenceChange(role.id, { days: [2] })}
-                                      className="text-[9px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200 font-medium"
-                                      title="Paskirti tik į trečiadienį"
-                                    >
-                                      Tik trečiadienį
-                                    </button>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    {WEEKDAY_BTNS.map(day => {
-                                      const isDayChecked = (pref.days || []).includes(day.offset);
-                                      return (
-                                        <button
-                                          key={day.offset}
-                                          type="button"
-                                          onClick={() => handleTogglePreferenceDay(role.id, day.offset)}
-                                          className={`w-7 h-6 rounded text-xs font-bold transition-all flex items-center justify-center ${
-                                            isDayChecked 
-                                              ? 'bg-indigo-600 text-white shadow-2xs' 
-                                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                          }`}
-                                          title={`Paskirti ${role.title} į šią savaitės dieną`}
-                                        >
-                                          {day.label}
-                                        </button>
-                                      );
-                                    })}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleRolePreferenceChange(role.id, { 
+                                  placementPosition: 'before_primary',
+                                  mode: 'auto_after_lessons'
+                                })}
+                                className={`py-1.5 px-2 rounded-md border text-[11px] font-medium transition-all text-left flex items-start gap-1.5 cursor-pointer ${
+                                  pref.placementPosition === 'before_primary'
+                                    ? 'bg-amber-600 text-white border-amber-600 shadow-2xs font-semibold'
+                                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                <Sun size={14} className={`shrink-0 mt-0.5 ${pref.placementPosition === 'before_primary' ? 'text-amber-200' : 'text-amber-500'}`} />
+                                <div>
+                                  <div className="font-bold">🌅 Prieš pagrindinį (ryte)</div>
+                                  <div className={`text-[10px] ${pref.placementPosition === 'before_primary' ? 'text-amber-100' : 'text-gray-500'}`}>
+                                    Ryte iki pamokų / darbo
                                   </div>
                                 </div>
+                              </button>
 
+                              <button
+                                type="button"
+                                onClick={() => handleRolePreferenceChange(role.id, { 
+                                  placementPosition: 'after_primary',
+                                  mode: 'auto_after_lessons'
+                                })}
+                                className={`py-1.5 px-2 rounded-md border text-[11px] font-medium transition-all text-left flex items-start gap-1.5 cursor-pointer ${
+                                  pref.placementPosition !== 'before_primary' && pref.mode !== 'custom_times'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
+                                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                <Sunset size={14} className={`shrink-0 mt-0.5 ${pref.placementPosition !== 'before_primary' && pref.mode !== 'custom_times' ? 'text-indigo-200' : 'text-indigo-400'}`} />
+                                <div>
+                                  <div className="font-bold">🌇 Po pagrindinio (popiet)</div>
+                                  <div className={`text-[10px] ${pref.placementPosition !== 'before_primary' && pref.mode !== 'custom_times' ? 'text-indigo-100' : 'text-gray-500'}`}>
+                                    Popiet po pamokų / pietų
+                                  </div>
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRolePreferenceChange(role.id, { 
+                                  placementPosition: 'custom_time',
+                                  mode: 'custom_times'
+                                })}
+                                className={`py-1.5 px-2 rounded-md border text-[11px] font-medium transition-all text-left flex items-start gap-1.5 cursor-pointer ${
+                                  pref.mode === 'custom_times'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
+                                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                <Clock size={14} className="shrink-0 mt-0.5" />
+                                <div>
+                                  <div className="font-bold">⏱ Konkretus laikas</div>
+                                  <div className={`text-[10px] ${pref.mode === 'custom_times' ? 'text-indigo-100' : 'text-gray-500'}`}>
+                                    Nurodyti tikslias valandas
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Days Selection for Secondary Role */}
+                          <div className="bg-white p-2.5 rounded-md border border-gray-200 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-semibold text-gray-600 block">Savaitės dienos:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRolePreferenceChange(role.id, { days: [2] })}
+                                    className="text-[9px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200 font-medium cursor-pointer"
+                                    title="Paskirti tik į trečiadienį"
+                                  >
+                                    Tik trečiadienį
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRolePreferenceChange(role.id, { days: [0, 1, 2, 3, 4] })}
+                                    className="text-[9px] bg-blue-50 text-blue-700 hover:bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200 font-medium cursor-pointer"
+                                    title="Paskirstyti per visas dienas (I-V)"
+                                  >
+                                    Visos (I–V)
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {WEEKDAY_BTNS.map(day => {
+                                    const isDayChecked = (pref.days || []).includes(day.offset);
+                                    return (
+                                      <button
+                                        key={day.offset}
+                                        type="button"
+                                        onClick={() => handleTogglePreferenceDay(role.id, day.offset)}
+                                        className={`w-7 h-6 rounded text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
+                                          isDayChecked 
+                                            ? 'bg-indigo-600 text-white shadow-2xs' 
+                                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                        }`}
+                                        title={`Paskirti ${role.title || 'pareigas'} į šią dieną`}
+                                      >
+                                        {day.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Exact Time Inputs (when mode === 'custom_times') */}
+                              {pref.mode === 'custom_times' && (
                                 <div className="space-y-1">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[10px] font-semibold text-gray-600 block">Darbo laikas:</span>
+                                    <span className="text-[10px] font-semibold text-gray-600 block">Tikslus darbo laikas:</span>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1013,10 +1092,10 @@ const App: React.FC = () => {
                                         const newEnd = minutesToTime(startM + chunk);
                                         handleRolePreferenceChange(role.id, { endTime: newEnd });
                                       }}
-                                      className="text-[9px] text-blue-600 hover:underline font-medium"
+                                      className="text-[9px] text-blue-600 hover:underline font-medium cursor-pointer"
                                       title="Automatiškai pritaikyti pabaigos laiką pagal pareigų normą"
                                     >
-                                      Suderinti pabaigą ({formatDuration(roleTargetMin)})
+                                      Suderinti ({formatDuration(roleTargetMin)})
                                     </button>
                                   </div>
                                   <div className="flex items-center gap-1">
@@ -1033,80 +1112,44 @@ const App: React.FC = () => {
                                     />
                                   </div>
                                 </div>
-                              </div>
+                              )}
+                            </div>
 
-                              {/* Calculated Summary vs Role Load */}
-                              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-gray-100">
-                                <span className="text-gray-600">
-                                  Planuojama: <b>{prefDaysCount} d. × {formatDuration(prefSlotMin)}</b> = <b>{formatDuration(prefTotalMin)}</b>
+                            {/* Placement Status Notification */}
+                            <div className="pt-1.5 border-t border-gray-100 flex items-center justify-between text-[11px]">
+                              {pref.placementPosition === 'before_primary' ? (
+                                <span className="text-amber-800 font-medium flex items-center gap-1">
+                                  <Sun size={12} className="text-amber-600 shrink-0" />
+                                  <span>Bus suplanuota ryte prieš pradedant pagrindinį darbą / pamokas.</span>
                                 </span>
+                              ) : pref.mode === 'custom_times' ? (
+                                <span className="text-gray-600 font-medium flex items-center gap-1">
+                                  <Clock size={12} className="text-indigo-600 shrink-0" />
+                                  <span>Planuojama: <b>{prefDaysCount} d. × {formatDuration(prefSlotMin)}</b> = <b>{formatDuration(prefTotalMin)}</b></span>
+                                </span>
+                              ) : (
+                                <span className="text-indigo-800 font-medium flex items-center gap-1">
+                                  <Sunset size={12} className="text-indigo-600 shrink-0" />
+                                  <span>Bus suplanuota popiet po pagrindinio darbo / kontaktinių pamokų.</span>
+                                </span>
+                              )}
+
+                              {pref.mode === 'custom_times' && (
                                 <div>
                                   {prefTotalMin === roleTargetMin ? (
                                     <span className="text-green-600 font-bold flex items-center gap-1">
-                                      <Check size={12} strokeWidth={3} /> Atitinka savaitės normą
-                                    </span>
-                                  ) : prefTotalMin < roleTargetMin ? (
-                                    <span className="text-amber-700 font-medium">
-                                      Liko suplanuoti: {formatDuration(roleTargetMin - prefTotalMin)}
+                                      <Check size={12} strokeWidth={3} /> Atitinka normą
                                     </span>
                                   ) : (
-                                    <span className="text-red-600 font-medium">
-                                      Viršija normą: +{formatDuration(prefTotalMin - roleTargetMin)}
+                                    <span className="text-amber-700 font-medium">
+                                      Liko: {formatDuration(Math.abs(roleTargetMin - prefTotalMin))}
                                     </span>
                                   )}
                                 </div>
-                              </div>
+                              )}
                             </div>
-                          )}
+                          </div>
 
-                          {pref.mode === 'auto_after_lessons' && (
-                            <div className="bg-white p-2.5 rounded-md border border-indigo-200 space-y-2 animate-fade-in">
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-semibold text-gray-600 block">Kuriomis dienomis dirbama:</span>
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRolePreferenceChange(role.id, { days: [2] })}
-                                      className="text-[9px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200 font-medium"
-                                    >
-                                      Tik trečiadienį
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRolePreferenceChange(role.id, { days: [0, 1, 2, 3, 4] })}
-                                      className="text-[9px] bg-gray-50 text-gray-600 hover:bg-gray-100 px-1.5 py-0.2 rounded border border-gray-200 font-medium"
-                                    >
-                                      Visomis (I–V)
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  {WEEKDAY_BTNS.map(day => {
-                                    const isDayChecked = (pref.days || []).includes(day.offset);
-                                    return (
-                                      <button
-                                        key={day.offset}
-                                        type="button"
-                                        onClick={() => handleTogglePreferenceDay(role.id, day.offset)}
-                                        className={`w-7 h-6 rounded text-xs font-bold transition-all flex items-center justify-center ${
-                                          isDayChecked 
-                                            ? 'bg-indigo-600 text-white shadow-2xs' 
-                                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                        }`}
-                                        title={`Paskirti į ${day.label}`}
-                                      >
-                                        {day.label}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              <p className="text-[11px] text-gray-600">
-                                Šios pareigos bus suplanuotos po pamokų tik pasirinktomis dienomis. Kitomis dienomis dirbama pagal įprastą ~8 val. ar 7,12 val. normą.
-                              </p>
-                            </div>
-                          )}
 
                           {pref.mode === 'manual_in_schedule' && (
                             <p className="text-[11px] text-gray-600 italic">

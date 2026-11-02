@@ -90,9 +90,15 @@ const generateSimpleSchedule = (
   const primaryRole = sortedRoles[0];
   const primaryRoleId = primaryRole ? primaryRole.id : '1';
 
-  // Check if role title contains teacher/pedagogical terms
-  const isTitlePedagogical = (title: string): boolean => {
-    const t = (title || '').toLowerCase().trim();
+  // Check if role is pedagogical
+  const isRolePedagogical = (role?: JobRole): boolean => {
+    if (!role) return false;
+    if (role.isPedagogical === false) return false;
+    const t = (role.title || '').toLowerCase().trim();
+    if (t.includes('direkt') || t.includes('vadov') || t.includes('administr') || t.includes('laborant') || t.includes('sekretor') || t.includes('valyt') || t.includes('buhalter') || t.includes('raštin') || t.includes('ūkved')) {
+      return false;
+    }
+    if (role.isPedagogical === true) return true;
     return t.includes('mokyt') || t.includes('pamok') || t.includes('pedagog') || t.includes('auklėtoj') || t.includes('ugd') || t.includes('dėst');
   };
 
@@ -124,7 +130,7 @@ const generateSimpleSchedule = (
   // or any teacher/specialist during non-contact weeks)
   // =========================================================================
   if (!isLessonMode) {
-    const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number }[]> = {
+    const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number; placementPosition: 'before_primary' | 'after_primary' | 'custom_time' }[]> = {
       0: [], 1: [], 2: [], 3: [], 4: []
     };
 
@@ -148,7 +154,8 @@ const generateSimpleSchedule = (
           secRolesPerDay[d].push({
             roleId: secRole.id,
             title: secRole.title,
-            minutes: toAdd
+            minutes: toAdd,
+            placementPosition: pref?.placementPosition || 'after_primary'
           });
         }
       });
@@ -202,45 +209,25 @@ const generateSimpleSchedule = (
         };
       }
 
-      const isPrimaryTeacher = isTitlePedagogical(primaryRole?.title || '');
+      const isPrimaryTeacher = isRolePedagogical(primaryRole);
       const primaryWorkCat: WorkCategory = isPrimaryTeacher ? 'flexible' : 'general';
+
+      // Separate secondary roles into morning (before primary) and afternoon (after primary)
+      const secBeforeToday = secToday.filter(s => s.placementPosition === 'before_primary');
+      const secAfterToday = secToday.filter(s => s.placementPosition !== 'before_primary');
 
       const shouldHaveLunch = hasLunch && lunchDur > 0 && totalDayWork >= 240;
 
       if (shouldHaveLunch) {
-        // Morning work for primary role: strictly from startTime (08:00) to lunchStartTime (12:30)
-        const morningWork = Math.min(Math.max(0, targetLunchStartMin - startMin), primaryMinToday);
-        if (morningWork > 0) {
-          slots.push({
-            id: `slot-${dayIndex}-morn`,
-            startTime: minutesToTime(startMin),
-            endTime: minutesToTime(startMin + morningWork),
-            type: 'work',
-            roleId: primaryRoleId,
-            isRemote: false,
-            workCategory: primaryWorkCat
-          });
-        }
+        let currentClock = startMin;
 
-        // Lunch break strictly at target lunch times (e.g. 12:30 - 13:00)
-        slots.push({
-          id: `slot-${dayIndex}-br`,
-          startTime: minutesToTime(targetLunchStartMin),
-          endTime: minutesToTime(targetLunchEndMin),
-          type: 'break',
-          roleId: '',
-          isRemote: false
-        });
-
-        let currentClock = targetLunchEndMin;
-
-        // Place secondary roles if any
-        secToday.forEach((sec, sIdx) => {
+        // 1. Morning secondary roles (prieš pagrindinį darbą)
+        secBeforeToday.forEach((sec, sIdx) => {
           if (sec.minutes > 0) {
             const secTargetRole = roles.find(r => r.id === sec.roleId);
-            const isSecTeacher = isTitlePedagogical(secTargetRole?.title || '');
+            const isSecTeacher = isRolePedagogical(secTargetRole);
             slots.push({
-              id: `slot-${dayIndex}-sec-${sIdx}`,
+              id: `slot-${dayIndex}-sec-bef-${sIdx}`,
               startTime: minutesToTime(currentClock),
               endTime: minutesToTime(currentClock + sec.minutes),
               type: 'work',
@@ -252,7 +239,36 @@ const generateSimpleSchedule = (
           }
         });
 
-        // Afternoon work for primary role to fulfill today's quota
+        // 2. Morning work for primary role: from currentClock to lunch (e.g. up to 12:30)
+        const morningPrimaryAvailable = Math.max(0, targetLunchStartMin - currentClock);
+        const morningWork = Math.min(morningPrimaryAvailable, primaryMinToday);
+        if (morningWork > 0) {
+          slots.push({
+            id: `slot-${dayIndex}-morn`,
+            startTime: minutesToTime(currentClock),
+            endTime: minutesToTime(currentClock + morningWork),
+            type: 'work',
+            roleId: primaryRoleId,
+            isRemote: false,
+            workCategory: primaryWorkCat
+          });
+          currentClock += morningWork;
+        }
+
+        // 3. Lunch break strictly at target lunch times or immediately after morning work
+        const actualLunchStart = Math.max(currentClock, targetLunchStartMin);
+        const actualLunchEnd = actualLunchStart + lunchDur;
+        slots.push({
+          id: `slot-${dayIndex}-br`,
+          startTime: minutesToTime(actualLunchStart),
+          endTime: minutesToTime(actualLunchEnd),
+          type: 'break',
+          roleId: '',
+          isRemote: false
+        });
+        currentClock = actualLunchEnd;
+
+        // 4. Afternoon work for primary role to fulfill today's quota
         const afternoonNeeded = Math.max(0, primaryMinToday - morningWork);
         if (afternoonNeeded > 0) {
           slots.push({
@@ -264,10 +280,47 @@ const generateSimpleSchedule = (
             isRemote: false,
             workCategory: primaryWorkCat
           });
+          currentClock += afternoonNeeded;
         }
+
+        // 5. Afternoon secondary roles (po pagrindinio darbo)
+        secAfterToday.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            const secTargetRole = roles.find(r => r.id === sec.roleId);
+            const isSecTeacher = isRolePedagogical(secTargetRole);
+            slots.push({
+              id: `slot-${dayIndex}-sec-aft-${sIdx}`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + sec.minutes),
+              type: 'work',
+              roleId: sec.roleId,
+              isRemote: false,
+              workCategory: isSecTeacher ? 'flexible' : 'general'
+            });
+            currentClock += sec.minutes;
+          }
+        });
       } else {
         // No lunch break: continuous work starting strictly at startTime (08:00)
         let currentClock = startMin;
+
+        // Morning secondary roles first
+        secBeforeToday.forEach((sec, sIdx) => {
+          if (sec.minutes > 0) {
+            const secTargetRole = roles.find(r => r.id === sec.roleId);
+            const isSecTeacher = isRolePedagogical(secTargetRole);
+            slots.push({
+              id: `slot-${dayIndex}-sec-bef-${sIdx}`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + sec.minutes),
+              type: 'work',
+              roleId: sec.roleId,
+              isRemote: false,
+              workCategory: isSecTeacher ? 'flexible' : 'general'
+            });
+            currentClock += sec.minutes;
+          }
+        });
 
         if (primaryMinToday > 0) {
           slots.push({
@@ -282,12 +335,12 @@ const generateSimpleSchedule = (
           currentClock += primaryMinToday;
         }
 
-        secToday.forEach((sec, sIdx) => {
+        secAfterToday.forEach((sec, sIdx) => {
           if (sec.minutes > 0) {
             const secTargetRole = roles.find(r => r.id === sec.roleId);
-            const isSecTeacher = isTitlePedagogical(secTargetRole?.title || '');
+            const isSecTeacher = isRolePedagogical(secTargetRole);
             slots.push({
-              id: `slot-${dayIndex}-sec-${sIdx}`,
+              id: `slot-${dayIndex}-sec-aft-${sIdx}`,
               startTime: minutesToTime(currentClock),
               endTime: minutesToTime(currentClock + sec.minutes),
               type: 'work',
@@ -318,7 +371,7 @@ const generateSimpleSchedule = (
   const isTeacherPrimary = teachingRoleId === primaryRoleId;
 
   // Secondary roles allocation
-  const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number }[]> = {
+  const secRolesPerDay: Record<number, { roleId: string; title: string; minutes: number; placementPosition: 'before_primary' | 'after_primary' | 'custom_time' }[]> = {
     0: [], 1: [], 2: [], 3: [], 4: []
   };
 
@@ -343,7 +396,8 @@ const generateSimpleSchedule = (
         secRolesPerDay[d].push({
           roleId: secRole.id,
           title: secRole.title,
-          minutes: toAdd
+          minutes: toAdd,
+          placementPosition: pref?.placementPosition || 'after_primary'
         });
       }
     });
@@ -358,6 +412,10 @@ const generateSimpleSchedule = (
     const dayTarget = dailyTargets[dayIndex];
     const availableForTeacherToday = Math.max(0, dayTarget - secMinToday);
 
+    const secBeforeToday = secToday.filter(s => s.placementPosition === 'before_primary');
+    const secAfterToday = secToday.filter(s => s.placementPosition !== 'before_primary');
+    const secBeforeTotalMin = secBeforeToday.reduce((s, r) => s + r.minutes, 0);
+
     if (isTeacherPrimary) {
       // The teacher IS the primary role
       const todayLessonAccMin = lessonNumbers.length * 60;
@@ -368,9 +426,34 @@ const generateSimpleSchedule = (
         const firstBell = STANDARD_LESSON_BELLS.find(b => b.number === firstLessonNum);
         const firstBellStartMin = firstBell ? timeToMinutes(firstBell.startTime) : startMin;
 
-        // Morning prep before first lesson (e.g. 08:00 - 08:30)
+        // 1. Morning secondary roles (prieš pagrindinį darbą / pamokas)
+        if (secBeforeTotalMin > 0) {
+          let mornSecStart = Math.min(startMin, firstBellStartMin - secBeforeTotalMin);
+          if (firstBellStartMin - startMin >= secBeforeTotalMin) {
+            mornSecStart = startMin;
+          }
+          let mClock = mornSecStart;
+          secBeforeToday.forEach((sec, sIdx) => {
+            if (sec.minutes > 0) {
+              const secTargetRole = roles.find(r => r.id === sec.roleId);
+              const isSecTeacher = isRolePedagogical(secTargetRole);
+              slots.push({
+                id: `slot-${dayIndex}-sec-bef-${sIdx}`,
+                startTime: minutesToTime(mClock),
+                endTime: minutesToTime(mClock + sec.minutes),
+                type: 'work',
+                roleId: sec.roleId,
+                isRemote: false,
+                workCategory: isSecTeacher ? 'flexible' : 'general'
+              });
+              mClock += sec.minutes;
+            }
+          });
+        }
+
+        // Morning prep before first lesson (e.g. 08:00 - 08:30) if no secondary before
         let morningPrep = 0;
-        if (firstBellStartMin > startMin && todayFlexMin > 0) {
+        if (firstBellStartMin > startMin && todayFlexMin > 0 && secBeforeTotalMin === 0) {
           morningPrep = Math.min(firstBellStartMin - startMin, todayFlexMin);
           if (morningPrep > 0) {
             slots.push({
@@ -443,17 +526,19 @@ const generateSimpleSchedule = (
           currentClock += todayFlexMin;
         }
 
-        // Secondary roles
-        secToday.forEach((sec, sIdx) => {
+        // Afternoon secondary roles (po pagrindinio darbo / pamokų)
+        secAfterToday.forEach((sec, sIdx) => {
           if (sec.minutes > 0) {
+            const secTargetRole = roles.find(r => r.id === sec.roleId);
+            const isSecTeacher = isRolePedagogical(secTargetRole);
             slots.push({
-              id: `slot-${dayIndex}-sec-${sIdx}`,
+              id: `slot-${dayIndex}-sec-aft-${sIdx}`,
               startTime: minutesToTime(currentClock),
               endTime: minutesToTime(currentClock + sec.minutes),
               type: 'work',
               roleId: sec.roleId,
               isRemote: false,
-              workCategory: 'general'
+              workCategory: isSecTeacher ? 'flexible' : 'general'
             });
             currentClock += sec.minutes;
           }
@@ -462,45 +547,55 @@ const generateSimpleSchedule = (
         // Zero lessons today for teacher: standard workday
         const shouldHaveLunch = hasLunch && lunchDur > 0 && availableForTeacherToday >= 240;
         if (shouldHaveLunch) {
-          const morningWork = Math.min(Math.max(0, targetLunchStartMin - startMin), availableForTeacherToday);
-          if (morningWork > 0) {
-            slots.push({
-              id: `slot-${dayIndex}-morn`,
-              startTime: minutesToTime(startMin),
-              endTime: minutesToTime(startMin + morningWork),
-              type: 'work',
-              roleId: teachingRoleId,
-              isRemote: false,
-              workCategory: 'flexible'
-            });
-          }
+          let currentClock = startMin;
 
-          slots.push({
-            id: `slot-${dayIndex}-br`,
-            startTime: minutesToTime(targetLunchStartMin),
-            endTime: minutesToTime(targetLunchEndMin),
-            type: 'break',
-            roleId: '',
-            isRemote: false
-          });
-
-          let currentClock = targetLunchEndMin;
-
-          secToday.forEach((sec, sIdx) => {
+          // Morning secondary roles first
+          secBeforeToday.forEach((sec, sIdx) => {
             if (sec.minutes > 0) {
+              const secTargetRole = roles.find(r => r.id === sec.roleId);
+              const isSecTeacher = isRolePedagogical(secTargetRole);
               slots.push({
-                id: `slot-${dayIndex}-sec-${sIdx}`,
+                id: `slot-${dayIndex}-sec-bef-${sIdx}`,
                 startTime: minutesToTime(currentClock),
                 endTime: minutesToTime(currentClock + sec.minutes),
                 type: 'work',
                 roleId: sec.roleId,
                 isRemote: false,
-                workCategory: 'general'
+                workCategory: isSecTeacher ? 'flexible' : 'general'
               });
               currentClock += sec.minutes;
             }
           });
 
+          // Morning teacher flex hours: from currentClock to lunch
+          const morningTeacherAvailable = Math.max(0, targetLunchStartMin - currentClock);
+          const morningWork = Math.min(morningTeacherAvailable, availableForTeacherToday);
+          if (morningWork > 0) {
+            slots.push({
+              id: `slot-${dayIndex}-morn`,
+              startTime: minutesToTime(currentClock),
+              endTime: minutesToTime(currentClock + morningWork),
+              type: 'work',
+              roleId: teachingRoleId,
+              isRemote: false,
+              workCategory: 'flexible'
+            });
+            currentClock += morningWork;
+          }
+
+          const actualLunchStart = Math.max(currentClock, targetLunchStartMin);
+          const actualLunchEnd = actualLunchStart + lunchDur;
+          slots.push({
+            id: `slot-${dayIndex}-br`,
+            startTime: minutesToTime(actualLunchStart),
+            endTime: minutesToTime(actualLunchEnd),
+            type: 'break',
+            roleId: '',
+            isRemote: false
+          });
+          currentClock = actualLunchEnd;
+
+          // Afternoon teacher flex hours
           const afternoonNeeded = Math.max(0, availableForTeacherToday - morningWork);
           if (afternoonNeeded > 0) {
             slots.push({
@@ -512,9 +607,47 @@ const generateSimpleSchedule = (
               isRemote: false,
               workCategory: 'flexible'
             });
+            currentClock += afternoonNeeded;
           }
+
+          // Afternoon secondary roles
+          secAfterToday.forEach((sec, sIdx) => {
+            if (sec.minutes > 0) {
+              const secTargetRole = roles.find(r => r.id === sec.roleId);
+              const isSecTeacher = isRolePedagogical(secTargetRole);
+              slots.push({
+                id: `slot-${dayIndex}-sec-aft-${sIdx}`,
+                startTime: minutesToTime(currentClock),
+                endTime: minutesToTime(currentClock + sec.minutes),
+                type: 'work',
+                roleId: sec.roleId,
+                isRemote: false,
+                workCategory: isSecTeacher ? 'flexible' : 'general'
+              });
+              currentClock += sec.minutes;
+            }
+          });
         } else {
           let currentClock = startMin;
+
+          // Morning secondary roles first
+          secBeforeToday.forEach((sec, sIdx) => {
+            if (sec.minutes > 0) {
+              const secTargetRole = roles.find(r => r.id === sec.roleId);
+              const isSecTeacher = isRolePedagogical(secTargetRole);
+              slots.push({
+                id: `slot-${dayIndex}-sec-bef-${sIdx}`,
+                startTime: minutesToTime(currentClock),
+                endTime: minutesToTime(currentClock + sec.minutes),
+                type: 'work',
+                roleId: sec.roleId,
+                isRemote: false,
+                workCategory: isSecTeacher ? 'flexible' : 'general'
+              });
+              currentClock += sec.minutes;
+            }
+          });
+
           if (availableForTeacherToday > 0) {
             slots.push({
               id: `slot-${dayIndex}-work`,
@@ -527,16 +660,19 @@ const generateSimpleSchedule = (
             });
             currentClock += availableForTeacherToday;
           }
-          secToday.forEach((sec, sIdx) => {
+
+          secAfterToday.forEach((sec, sIdx) => {
             if (sec.minutes > 0) {
+              const secTargetRole = roles.find(r => r.id === sec.roleId);
+              const isSecTeacher = isRolePedagogical(secTargetRole);
               slots.push({
-                id: `slot-${dayIndex}-sec-${sIdx}`,
+                id: `slot-${dayIndex}-sec-aft-${sIdx}`,
                 startTime: minutesToTime(currentClock),
                 endTime: minutesToTime(currentClock + sec.minutes),
                 type: 'work',
                 roleId: sec.roleId,
                 isRemote: false,
-                workCategory: 'general'
+                workCategory: isSecTeacher ? 'flexible' : 'general'
               });
               currentClock += sec.minutes;
             }
@@ -580,7 +716,7 @@ const generateSimpleSchedule = (
             type: 'work',
             roleId: primaryRoleId,
             isRemote: false,
-            workCategory: isTitlePedagogical(primaryRole?.title || '') ? 'flexible' : 'general'
+            workCategory: isRolePedagogical(primaryRole) ? 'flexible' : 'general'
           });
         }
 
@@ -604,7 +740,7 @@ const generateSimpleSchedule = (
             type: 'work',
             roleId: primaryRoleId,
             isRemote: false,
-            workCategory: isTitlePedagogical(primaryRole?.title || '') ? 'flexible' : 'general'
+            workCategory: isRolePedagogical(primaryRole) ? 'flexible' : 'general'
           });
           currentClock += afternoonPrimary;
         }
@@ -633,7 +769,7 @@ const generateSimpleSchedule = (
             type: 'work',
             roleId: primaryRoleId,
             isRemote: false,
-            workCategory: isTitlePedagogical(primaryRole?.title || '') ? 'flexible' : 'general'
+            workCategory: isRolePedagogical(primaryRole) ? 'flexible' : 'general'
           });
           currentClock += primaryMinToday;
         }
