@@ -26,7 +26,7 @@ interface RoleDayDistributionModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: WorkConfig;
-  onConfirm: (updatedRoles: JobRole[]) => void;
+  onConfirm: (updatedRoles: JobRole[], shortFriday?: boolean) => void;
 }
 
 const WEEKDAYS = [
@@ -44,6 +44,9 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
   onConfirm
 }) => {
   if (!isOpen) return null;
+
+  // Local state for Friday shortening preference
+  const [shortFridayState, setShortFridayState] = useState<boolean>(config.shortFriday ?? false);
 
   // Local state for role preferences
   const [rolesState, setRolesState] = useState<JobRole[]>(() => {
@@ -142,7 +145,7 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
   // Calculate day-by-day preview
   const preview = useMemo(() => {
     const totalWeeklyTarget = rolesState.reduce((sum, r) => sum + (r.hours * 60) + r.minutes, 0);
-    const dayTargets = calculateDailyTargets(totalWeeklyTarget, config.shortFriday ?? true);
+    const dayTargets = calculateDailyTargets(totalWeeklyTarget, shortFridayState);
 
     const dayBreakdowns = WEEKDAYS.map(day => {
       const dayOffset = day.offset;
@@ -216,10 +219,10 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
     });
 
     return { dayBreakdowns, totalWeeklyTarget };
-  }, [rolesState, config]);
+  }, [rolesState, config, shortFridayState]);
 
   const handleSaveAndGenerate = () => {
-    onConfirm(rolesState);
+    onConfirm(rolesState, shortFridayState);
   };
 
   const teachingRole = getSlotTeacherRole(rolesState);
@@ -464,6 +467,57 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
                 </div>
               );
             })}
+          </div>
+
+          {/* Penktadienio laiko pasirinkimas: Tolygiai (po lygiai) vs Penktadienį 1 val. trumpiau */}
+          <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200/90 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                <Calendar size={14} className="text-indigo-600" />
+                <span>Darbo laiko išdėstymas: penktadienio trukmė</span>
+              </span>
+              <span className="text-[10px] bg-indigo-200/80 text-indigo-900 font-semibold px-2 py-0.5 rounded-full">
+                {shortFridayState ? 'Penktadienis 1 val. trumpesnis' : 'Tolygiai per visas dienas'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShortFridayState(false)}
+                className={`p-2.5 rounded-lg border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                  !shortFridayState 
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <Check size={14} className={`shrink-0 mt-0.5 ${!shortFridayState ? 'text-white' : 'text-transparent'}`} />
+                <div>
+                  <div className="font-bold">Tolygiai (I–V po lygiai)</div>
+                  <div className={`text-[10px] mt-0.5 leading-snug ${!shortFridayState ? 'text-indigo-100' : 'text-gray-500'}`}>
+                    Esant 40 val.: visomis dienomis po <b>8 val. 00 min.</b> (iki 16:30 su pietumis)
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShortFridayState(true)}
+                className={`p-2.5 rounded-lg border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                  shortFridayState 
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <Check size={14} className={`shrink-0 mt-0.5 ${shortFridayState ? 'text-white' : 'text-transparent'}`} />
+                <div>
+                  <div className="font-bold">Penktadienį 1 val. trumpiau</div>
+                  <div className={`text-[10px] mt-0.5 leading-snug ${shortFridayState ? 'text-indigo-100' : 'text-gray-500'}`}>
+                    I–IV po <b>8 val. 15 min.</b> (iki 16:45), o penktadienį – <b>7 val. 00 min.</b> (iki 15:30)
+                  </div>
+                </div>
+              </button>
+            </div>
           </div>
 
           {/* Weekly Day-by-Day Balance Preview */}

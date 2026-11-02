@@ -65,7 +65,7 @@ const App: React.FC = () => {
       3: [],
       4: []
     },
-    shortFriday: true
+    shortFriday: false
   });
 
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
@@ -392,9 +392,10 @@ const App: React.FC = () => {
     setShowDistributionModal(true);
   };
 
-  const handleConfirmDistributionAndGenerate = async (updatedRoles: JobRole[]) => {
+  const handleConfirmDistributionAndGenerate = async (updatedRoles: JobRole[], updatedShortFriday?: boolean) => {
     setShowDistributionModal(false);
-    setConfig(prev => ({ ...prev, roles: updatedRoles }));
+    const activeShortFriday = updatedShortFriday !== undefined ? updatedShortFriday : (config.shortFriday ?? false);
+    setConfig(prev => ({ ...prev, roles: updatedRoles, shortFriday: activeShortFriday }));
     setLoading(true);
     try {
       const generated = await generateSmartSchedule(
@@ -408,14 +409,41 @@ const App: React.FC = () => {
         config.isTeacher,
         config.otherWorkplaces,
         config.weeklyLessons,
-        config.shortFriday ?? true
+        activeShortFriday
       );
       setSchedule(generated);
       setHasGenerated(true);
-      showToast('Darbo laikas sėkmingai išdėliotas pagal pasirinktas dienas!');
+      showToast(activeShortFriday ? 'Darbo laikas išdėliotas (penktadienį 1 val. trumpiau)!' : 'Darbo laikas išdėstytas tolygiai visomis dienomis!');
     } catch (error) {
       console.error("Failed to generate", error);
       showToast('Nepavyko sugeneruoti grafiko.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleShortFriday = async (newVal: boolean) => {
+    setConfig(prev => ({ ...prev, shortFriday: newVal }));
+    setLoading(true);
+    try {
+      const generated = await generateSmartSchedule(
+        config.roles, 
+        mainScheduleMinutes,
+        config.defaultStartTime,
+        config.lunchDuration,
+        config.lunchStartTime,
+        config.lunchEndTime,
+        config.hasLunch,
+        config.isTeacher,
+        config.otherWorkplaces,
+        config.weeklyLessons,
+        newVal
+      );
+      setSchedule(generated);
+      showToast(newVal ? 'Penktadienis nustatytas 1 val. trumpesnis (I–IV +15 min, V -1 val.)!' : 'Darbo laikas išdėstytas tolygiai visomis dienomis (po 8 val. / d.)!');
+    } catch (error) {
+      console.error("Failed to toggle short Friday", error);
+      showToast('Nepavyko atnaujinti penktadienio trukmės.');
     } finally {
       setLoading(false);
     }
@@ -1203,35 +1231,55 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Short Friday setting (Penktadieniais 1 val. trumpiau) */}
-            <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-sm text-indigo-950">
-                  <input
-                    type="checkbox"
-                    checked={config.shortFriday ?? true}
-                    onChange={(e) => setConfig({ ...config, shortFriday: e.target.checked })}
-                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                  />
+            {/* Short Friday setting: Tolygiai (po lygiai) vs Penktadienį 1 val. trumpiau (vartotojo prašymu) */}
+            <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="flex items-center gap-2 font-bold text-sm text-indigo-950">
                   <Calendar size={16} className="text-indigo-600" />
-                  <span>Penktadieniais 1 val. trumpiau</span>
-                </label>
+                  <span>Darbo laiko išdėstymas: penktadienio trukmė</span>
+                </span>
                 <span className="text-[10px] bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded-full font-semibold">
-                  {config.shortFriday ?? true ? 'Aktyvu (I–IV +15 min, V -1 val.)' : 'Išjungta (po lygiai)'}
+                  {config.shortFriday ? 'Penktadienis -1 val.' : 'Tolygiai per visas dienas'}
                 </span>
               </div>
-              <p className="text-xs text-indigo-800 leading-relaxed">
-                {config.shortFriday ?? true ? (
-                  <span>
-                    Esant <b>40 val.</b> savaitei: I–IV dirbama po <b>8 val. 15 min.</b>, o penktadienį 1 val. trumpiau – <b>7 val. 00 min.</b><br />
-                    Esant <b>36 val.</b> (pedagogų norma po 7,12): I–IV dirbama po <b>7 val. 27 min.</b>, o penktadienį 1 val. trumpiau – <b>6 val. 12 min.</b>
-                  </span>
-                ) : (
-                  <span>
-                    Visomis dienomis darbo laikas išdėstomas vienodai: po <b>8 val. 00 min.</b> (esant 40 val.) arba po <b>7 val. 12 min.</b> (esant 36 val. / 7,12).
-                  </span>
-                )}
-              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, shortFriday: false })}
+                  className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                    !config.shortFriday
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-semibold'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <Check size={14} className={`shrink-0 mt-0.5 ${!config.shortFriday ? 'text-white' : 'text-transparent'}`} />
+                  <div>
+                    <div className="font-bold">Tolygiai (I–V po lygiai)</div>
+                    <div className={`text-[10px] mt-0.5 leading-snug ${!config.shortFriday ? 'text-indigo-100' : 'text-gray-500'}`}>
+                      Visomis dienomis dirbama vienodai: po <b>8 val. 00 min.</b> (esant 40 val.) arba po <b>7 val. 12 min.</b> (esant 36 val.)
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, shortFriday: true })}
+                  className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-start gap-2 cursor-pointer ${
+                    config.shortFriday
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-semibold'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <Check size={14} className={`shrink-0 mt-0.5 ${config.shortFriday ? 'text-white' : 'text-transparent'}`} />
+                  <div>
+                    <div className="font-bold">Penktadienį 1 val. trumpiau</div>
+                    <div className={`text-[10px] mt-0.5 leading-snug ${config.shortFriday ? 'text-indigo-100' : 'text-gray-500'}`}>
+                      I–IV po <b>8 val. 15 min.</b>, o penktadienį 1 val. trumpiau – <b>7 val. 00 min.</b> (esant 40 val.)
+                    </div>
+                  </div>
+                </button>
+              </div>
             </div>
 
             {/* Other Workplaces Configuration */}
@@ -1340,12 +1388,40 @@ const App: React.FC = () => {
               {/* Distribution Modal Reopen Button */}
               <button
                 onClick={() => setShowDistributionModal(true)}
-                className="text-xs flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors font-semibold shadow-2xs"
+                className="text-xs flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors font-semibold shadow-2xs cursor-pointer"
                 title="Keisti, kuriomis savaitės dienomis išdėliotas kiekvienų pareigų darbo laikas"
               >
                 <Calendar size={13} />
                 <span>Dienų paskirstymas</span>
               </button>
+
+              {/* Quick toggle for Tolygiai vs Penktadienį 1 val. trumpiau */}
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleToggleShortFriday(false)}
+                  className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                    !config.shortFriday 
+                      ? 'bg-white text-indigo-700 shadow-2xs font-bold border border-gray-200' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  title="Tolygiai per visas dienas (esant 40 val. – po 8 val. 00 min. kasdien)"
+                >
+                  Tolygiai (po 8 val.)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleShortFriday(true)}
+                  className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                    config.shortFriday 
+                      ? 'bg-indigo-600 text-white shadow-2xs font-bold' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                  title="Penktadienį 1 val. trumpiau (I–IV po 8 val. 15 min., V – 7 val. 00 min.)"
+                >
+                  Penktadienį -1 val.
+                </button>
+              </div>
 
               {/* Teacher helper button: Distribute flexible hours outside lessons */}
               {config.isTeacher && (
