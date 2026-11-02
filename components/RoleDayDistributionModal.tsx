@@ -186,7 +186,10 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
             }
           }
         } else if (isScheduledToday) {
-          const perDay = Math.round(roleTotalMin / roleDays.length);
+          let perDay = Math.round(roleTotalMin / roleDays.length);
+          if (role.id === rolesState[0]?.id && roleDays.length === 5) {
+            perDay = dayTargets[dayOffset];
+          }
           activeRolesOnDay.push({
             role,
             targetMinutes: perDay,
@@ -540,7 +543,8 @@ export const RoleDayDistributionModal: React.FC<RoleDayDistributionModalProps> =
           <button
             type="button"
             onClick={handleSaveAndGenerate}
-            className="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-indigo-500"
+            style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
+            className="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-indigo-700"
           >
             <Sparkles size={16} className="text-amber-300 shrink-0" />
             <span className="text-white font-bold">Išdėlioti darbo laikus ir atidaryti grafiką</span>

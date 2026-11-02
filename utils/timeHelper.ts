@@ -106,11 +106,11 @@ export const getSlotTeacherRole = (roles: JobRole[]): JobRole | undefined => {
   // 3. Any role that is not a director/manager/admin
   const nonAdmin = roles.find(r => {
     const t = (r.title || '').toLowerCase().trim();
-    return !t.includes('direkt') && !t.includes('vadov') && !t.includes('administr') && !t.includes('vedėj');
+    return !t.includes('direkt') && !t.includes('vadov') && !t.includes('administr') && !t.includes('vedėj') && !t.includes('raštin') && !t.includes('buhalter');
   });
   if (nonAdmin) return nonAdmin;
 
-  return roles[0];
+  return undefined;
 };
 
 /**
